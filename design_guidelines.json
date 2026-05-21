@@ -1,0 +1,112 @@
+{
+  "theme": "LIGHT",
+  "archetype": "Archetype 4 (Swiss & High-Contrast / Enterprise Trust)",
+  "emotional_tone": "Serious, professional, fast, reliable, clean (Linear/Stripe aesthetic)",
+  "forbidden_elements": [
+    "Generic purple/violet gradients",
+    "Teal green/blue",
+    "Inter or Roboto for headings",
+    "Centered-everything layouts",
+    "Muddy gray transparencies",
+    "Placeholder images or generic stock lacking context"
+  ],
+  "typography": {
+    "font_families": {
+      "headings": "'Cabinet Grotesk', sans-serif",
+      "body": "'IBM Plex Sans', sans-serif",
+      "mono": "'JetBrains Mono', monospace"
+    },
+    "scale": {
+      "h1": "text-4xl tracking-tight leading-none font-bold",
+      "h2": "text-2xl tracking-tight leading-snug font-semibold",
+      "h3": "text-xl tracking-tight leading-snug font-medium",
+      "body": "text-sm leading-relaxed",
+      "table_data": "text-[13px] leading-tight",
+      "overline": "text-xs tracking-[0.1em] uppercase font-semibold"
+    }
+  },
+  "colors": {
+    "background": {
+      "page": "#F8FAFC",
+      "surface": "#FFFFFF",
+      "surface_hover": "#F1F5F9",
+      "sidebar": "#FFFFFF"
+    },
+    "border": {
+      "default": "#E2E8F0",
+      "focus": "#0F172A",
+      "divider": "#F1F5F9"
+    },
+    "text": {
+      "primary": "#0F172A",
+      "secondary": "#475569",
+      "tertiary": "#64748B",
+      "inverse": "#FFFFFF"
+    },
+    "brand": {
+      "primary": "#0F172A",
+      "primary_hover": "#1E293B",
+      "accent": "#2563EB"
+    },
+    "states": {
+      "success_bg": "#ECFDF5",
+      "success_text": "#059669",
+      "warning_bg": "#FEFCE8",
+      "warning_text": "#D97706",
+      "danger_bg": "#FEF2F2",
+      "danger_text": "#E11D48"
+    }
+  },
+  "layout_and_spacing": {
+    "philosophy": "High data density ('Control Room' grid). Optical alignment. Functional breathing room but tight data rows.",
+    "container_padding": "p-6 or p-8",
+    "grid_gaps": "gap-4 or gap-6",
+    "radius": "rounded-lg (max 8px) for cards, rounded-md for inputs/buttons",
+    "shadows": {
+      "card": "shadow-[0_1px_3px_0_rgba(0,0,0,0.05),0_1px_2px_-1px_rgba(0,0,0,0.05)]",
+      "dropdown": "shadow-[0_4px_24px_-8px_rgba(0,0,0,0.12)]"
+    }
+  },
+  "components": {
+    "sidebar": "Fixed width w-64, solid background, 1px right border. Clean module list with Phosphor icons.",
+    "cards": "Flat background (#FFFFFF), 1px border (#E2E8F0), no heavy shadow. Content padding p-6.",
+    "buttons": "Primary: Solid #0F172A, rounded-md, crisp. Secondary: Outline, hover:bg-slate-50. Action buttons must be prominent.",
+    "tables": "Dense, crisp lines. border-b only for rows (no side borders). Table headers uppercase, text-xs tracking-wider text-slate-500. Hover state on rows: bg-slate-50.",
+    "inputs": "Shadcn based. 1px border-slate-200, focus:ring-1 focus:ring-slate-900 focus:border-slate-900.",
+    "search": "Prominent top search bar with keyboard shortcut hint (Cmd+K).",
+    "empty_states": "Beautiful, crisp empty states. Subtle border-dashed, minimalist illustration or icon, clear 'Add New' CTA."
+  },
+  "icons": {
+    "library": "@phosphor-icons/react",
+    "style": "Regular or Light weight, matching text color"
+  },
+  "motion": {
+    "philosophy": "Snappy, immediate feedback. No long transitions.",
+    "hover": "transition-colors duration-150 ease-out",
+    "dialogs": "Fade in scale (98% -> 100%) duration-200"
+  },
+  "media": {
+    "image_urls": {
+      "user_avatars": [
+        "https://images.unsplash.com/photo-1762522926157-bcc04bf0b10a?crop=entropy&cs=srgb&fm=jpg&ixid=M3w4NjY2NzN8MHwxfHNlYXJjaHwzfHxwcm9mZXNzaW9uYWwlMjBoZWFkc2hvdCUyMHBvcnRyYWl0fGVufDB8fHx8MTc3OTM2NTg5Mnww&ixlib=rb-4.1.0&q=85",
+        "https://images.pexels.com/photos/14589344/pexels-photo-14589344.jpeg?auto=compress&cs=tinysrgb&dpr=2&h=650&w=940"
+      ],
+      "empty_state_backgrounds": [
+        "https://images.unsplash.com/photo-1775214593099-15fac0470bda?crop=entropy&cs=srgb&fm=jpg&ixid=M3w3NDk1Nzd8MHwxfHNlYXJjaHwyfHxtaW5pbWFsaXN0JTIwb2ZmaWNlJTIwd29ya3NwYWNlJTIwZW1wdHl8ZW58MHx8fHwxNzc5MzY1ODkyfDA&ixlib=rb-4.1.0&q=85"
+      ]
+    },
+    "instructions": "Use avatars for employee tables/user profiles. Use the minimalist workspace image selectively as a subtle background for major empty states if needed, heavily faded."
+  },
+  "testing": {
+    "data_testid_rule": "ALL interactive elements MUST include data-testid attribute (kebab-case, role-based)."
+  },
+  "instructions_to_main_agent": [
+    "Build a Left Sidebar layout with modules: Dashboard, Klijenti, Zaposlenici, Dokumenti, PDV/IOPPD, Finansije, Vault.",
+    "Ensure 'Zaposlenici' (Employees) are scoped per 'Firma' (Client company).",
+    "Implement the 58 Document Templates section as a highly searchable, filterable grid or list with a 'Generate' action.",
+    "The UI must be exclusively in Latin alphabet (Crna Gora) and use EUR currency formatting.",
+    "Include an initial login state requiring the master password ('Getuard1994').",
+    "Apply 'Control Room' dense UI principles: tables should fit substantial data without excessive scrolling.",
+    "Strictly follow the color palette. No purples. Use Slate-900 (Obsidian) for primary CTAs to evoke trust and premium quality."
+  ]
+}
