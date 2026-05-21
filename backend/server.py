@@ -151,6 +151,7 @@ class Employee(BaseModel):
     datum_prestanka: str = ""  # datum prestanka radnog odnosa (odjava)
     vrsta_ugovora: str = "neodredjeno"  # odredjeno/neodredjeno
     radno_vrijeme: str = "puno"  # puno/skraceno
+    sati_sedmicno: int = 40  # 40 = puno radno vrijeme, npr. 20 = pola
     telefon: str = ""
     email: str = ""
     aktivan: bool = True
@@ -173,6 +174,7 @@ class EmployeeCreate(BaseModel):
     datum_prestanka: Optional[str] = ""
     vrsta_ugovora: Optional[str] = "neodredjeno"
     radno_vrijeme: Optional[str] = "puno"
+    sati_sedmicno: Optional[int] = 40
     telefon: Optional[str] = ""
     email: Optional[str] = ""
     aktivan: Optional[bool] = True
@@ -1364,6 +1366,22 @@ def _build_replacements(company: dict, employee: Optional[dict], agency: dict, c
             "[RADNO_VRIJEME]": employee.get("radno_vrijeme", ""),
             "[TELEFON_RADNIKA]": employee.get("telefon", ""),
         })
+        
+        # UGOVOR O RADU — automatska zamjena broja sati i pun/skraćeno
+        # Šablon: "3. Zaposleni zasniva radni odnos sa __punim______ radnim vremenom u trajanju od  40  sati nedeljno."
+        emp_sati = int(employee.get("sati_sedmicno") or 40)
+        emp_vrste = (employee.get("radno_vrijeme") or "puno").lower()
+        # Ako je <40, automatski je skraćeno
+        if emp_sati < 40 or emp_vrste in ("skraceno", "skraćeno"):
+            radno_label = "skraćenim"
+        else:
+            radno_label = "punim"
+        # Originalni tekst iz šablona (sa underscore-ima)
+        repl["sa __punim______ radnim vremenom u trajanju od  40  sati nedeljno."] = \
+            f"sa {radno_label} radnim vremenom u trajanju od {emp_sati} sati nedeljno."
+        # Varijante sa drugim brojem underscora
+        repl["sa __punim_____ radnim vremenom u trajanju od  40  sati nedeljno."] = \
+            f"sa {radno_label} radnim vremenom u trajanju od {emp_sati} sati nedeljno."
     
     # Custom fields od korisnika
     for k, v in custom.items():

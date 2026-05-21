@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import {
   Users, MagnifyingGlass, Plus, PencilSimple, Trash, ArrowSquareOut,
-  Spinner, X, Check,
+  Spinner, X, Check, Printer,
 } from "@phosphor-icons/react";
 import api from "@/lib/api";
 
@@ -11,7 +11,7 @@ const empEmpty = {
   ime: "", prezime: "", jmbg: "", licna_karta: "", adresa: "", grad: "",
   pozicija: "", strucna_sprema: "", plata_bruto: 0, plata_neto: 0,
   datum_pocetka: "", datum_kraja: "", datum_prestanka: "",
-  vrsta_ugovora: "neodredjeno", radno_vrijeme: "puno",
+  vrsta_ugovora: "neodredjeno", radno_vrijeme: "puno", sati_sedmicno: 40,
   telefon: "", email: "", aktivan: true,
 };
 
@@ -74,6 +74,7 @@ export default function Persons() {
         ...form,
         plata_bruto: Number(form.plata_bruto) || 0,
         plata_neto: Number(form.plata_neto) || 0,
+        sati_sedmicno: Number(form.sati_sedmicno) || 40,
       };
       if (editing) {
         await api.put(`/employees/${editing.id}`, payload);
@@ -93,6 +94,57 @@ export default function Persons() {
     if (!window.confirm(`Obrisati ${p.ime} ${p.prezime}?`)) return;
     await api.delete(`/employees/${p.id}`);
     load();
+  };
+
+  const printUgovor = async (p, opts = {}) => {
+    if (!p.id || !p.company_id) return;
+    try {
+      const r = await api.post("/documents/generate", {
+        template_filename: "UGOVOR O RADU Zaposlenih.docx",
+        company_id: p.company_id,
+        employee_id: p.id,
+      });
+      if (r.data?.pdf_filename) {
+        const tokenStr = localStorage.getItem("token") || "";
+        const url = `${process.env.REACT_APP_BACKEND_URL}/api/documents/preview/${encodeURIComponent(r.data.pdf_filename)}?token=${tokenStr}`;
+        window.open(url, "_blank");
+        if (opts.closeModal) setModalOpen(false);
+      } else {
+        alert("PDF nije mogao da se generiše");
+      }
+    } catch (e) {
+      alert(`Greška: ${e.response?.data?.detail || e.message}`);
+    }
+  };
+
+  const saveAndPrint = async () => {
+    if (!form.ime || !form.prezime || !form.company_id) {
+      setError("Ime, prezime i firma su obavezni");
+      return;
+    }
+    setSaving(true);
+    try {
+      const payload = {
+        ...form,
+        plata_bruto: Number(form.plata_bruto) || 0,
+        plata_neto: Number(form.plata_neto) || 0,
+        sati_sedmicno: Number(form.sati_sedmicno) || 40,
+      };
+      let savedPerson;
+      if (editing) {
+        await api.put(`/employees/${editing.id}`, payload);
+        savedPerson = { ...editing, ...payload };
+      } else {
+        const r = await api.post(`/employees`, payload);
+        savedPerson = r.data;
+      }
+      await printUgovor(savedPerson, { closeModal: true });
+      load();
+    } catch (e) {
+      setError(e.response?.data?.detail || "Greška");
+    } finally {
+      setSaving(false);
+    }
   };
 
   return (
@@ -208,6 +260,9 @@ export default function Persons() {
                   </td>
                   <td>
                     <div style={{ display: "flex", gap: 4, justifyContent: "flex-end" }}>
+                      <button onClick={() => printUgovor(p)} style={{ border: "none", background: "transparent", padding: 5, borderRadius: 4, color: "var(--accent)", cursor: "pointer", display: "flex" }} data-testid={`print-ugovor-${p.id}`} title="Štampaj ugovor o radu">
+                        <Printer size={15} />
+                      </button>
                       <button onClick={() => openEdit(p)} style={{ border: "none", background: "transparent", padding: 5, borderRadius: 4, color: "var(--text-secondary)", cursor: "pointer", display: "flex" }} data-testid={`edit-person-${p.id}`}>
                         <PencilSimple size={15} />
                       </button>
@@ -227,6 +282,7 @@ export default function Persons() {
         <PersonModal
           form={form} setForm={setForm} editing={editing} companies={companies}
           onSave={save} onClose={() => setModalOpen(false)}
+          onSaveAndPrint={saveAndPrint}
           saving={saving} error={error}
         />
       )}
@@ -234,7 +290,7 @@ export default function Persons() {
   );
 }
 
-function PersonModal({ form, setForm, editing, companies, onSave, onClose, saving, error }) {
+function PersonModal({ form, setForm, editing, companies, onSave, onClose, onSaveAndPrint, saving, error }) {
   const u = (k, v) => setForm({ ...form, [k]: v });
   return (
     <div className="modal-backdrop" onClick={onClose} data-testid="person-modal">
@@ -279,6 +335,44 @@ function PersonModal({ form, setForm, editing, companies, onSave, onClose, savin
                 <option value="odredjeno">Na određeno</option>
               </select>
             </div>
+            <div className="field-group">
+              <label className="field-label">Sati sedmično</label>
+              <div style={{ display: "flex", gap: 6 }}>
+                <input
+                  className="input"
+                  type="number"
+                  min="1" max="40"
+                  value={form.sati_sedmicno ?? 40}
+                  onChange={(e) => {
+                    const v = Number(e.target.value) || 40;
+                    setForm({ ...form, sati_sedmicno: v, radno_vrijeme: v < 40 ? "skraceno" : "puno" });
+                  }}
+                  data-testid="person-sati"
+                  style={{ flex: 1 }}
+                />
+                <button
+                  type="button"
+                  className="btn btn-ghost"
+                  onClick={() => setForm({ ...form, sati_sedmicno: 40, radno_vrijeme: "puno" })}
+                  style={{ fontSize: 11.5, padding: "4px 8px" }}
+                >40h</button>
+                <button
+                  type="button"
+                  className="btn btn-ghost"
+                  onClick={() => setForm({ ...form, sati_sedmicno: 20, radno_vrijeme: "skraceno" })}
+                  style={{ fontSize: 11.5, padding: "4px 8px" }}
+                >20h</button>
+                <button
+                  type="button"
+                  className="btn btn-ghost"
+                  onClick={() => setForm({ ...form, sati_sedmicno: 10, radno_vrijeme: "skraceno" })}
+                  style={{ fontSize: 11.5, padding: "4px 8px" }}
+                >10h</button>
+              </div>
+              <div style={{ fontSize: 11, color: "var(--text-tertiary)", marginTop: 4 }}>
+                {form.sati_sedmicno >= 40 ? "Puno radno vrijeme" : `Skraćeno radno vrijeme — ${form.sati_sedmicno}h sedmično`}
+              </div>
+            </div>
             {form.vrsta_ugovora === "odredjeno" && (
               <Field label="Datum kraja ugovora (određeno)" value={form.datum_kraja} onChange={(v) => u("datum_kraja", v)} type="date" testid="person-datum-kraja" />
             )}
@@ -294,6 +388,16 @@ function PersonModal({ form, setForm, editing, companies, onSave, onClose, savin
         </div>
         <div className="modal-footer">
           <button className="btn btn-secondary" onClick={onClose}>Odustani</button>
+          <button
+            className="btn btn-secondary"
+            onClick={onSaveAndPrint}
+            disabled={saving || !form.ime || !form.prezime || !form.company_id}
+            data-testid="save-and-print-ugovor-btn"
+            title="Sačuvaj i odmah generiši ugovor o radu"
+          >
+            <Printer size={14} />
+            Sačuvaj i štampaj ugovor
+          </button>
           <button className="btn btn-primary" onClick={onSave} disabled={saving} data-testid="save-person-btn">
             {saving ? <Spinner size={14} className="spin" /> : <Check size={14} />}
             Sačuvaj
