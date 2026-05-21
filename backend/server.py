@@ -530,6 +530,42 @@ async def delete_employee(employee_id: str, username: str = Depends(get_current_
     return {"success": True}
 
 
+# ============== PERSONS (centralna evidencija fizičkih lica) ==============
+
+@api_router.get("/persons")
+async def list_all_persons(
+    search: Optional[str] = None,
+    company_id: Optional[str] = None,
+    username: str = Depends(get_current_user)
+):
+    """Vraća SVE zaposlene iz SVIH firmi sa pridruženim podacima o firmi."""
+    query: Dict[str, Any] = {}
+    if company_id:
+        query["company_id"] = company_id
+    if search:
+        regex = re.escape(search)
+        query["$or"] = [
+            {"ime": {"$regex": regex, "$options": "i"}},
+            {"prezime": {"$regex": regex, "$options": "i"}},
+            {"jmbg": {"$regex": regex, "$options": "i"}},
+            {"pozicija": {"$regex": regex, "$options": "i"}},
+        ]
+    
+    employees = await db.employees.find(query, {"_id": 0}).sort("prezime", 1).to_list(5000)
+    
+    # Enrich sa nazivima firmi
+    company_ids = list(set(e.get("company_id") for e in employees if e.get("company_id")))
+    companies = await db.companies.find({"id": {"$in": company_ids}}, {"_id": 0}).to_list(1000)
+    cmap = {c["id"]: c for c in companies}
+    
+    for e in employees:
+        c = cmap.get(e.get("company_id"))
+        e["company_naziv"] = c.get("naziv", "—") if c else "—"
+        e["company_pib"] = c.get("pib", "") if c else ""
+    
+    return employees
+
+
 # ============== TEMPLATES & DOCUMENT GENERATION ==============
 
 @api_router.get("/templates")
@@ -696,6 +732,28 @@ SAMPLE_EMPLOYEE_POSITIONS = [
     "NK - nekvalifikovani radnik",
 ]
 
+# Specifični datumi/periodi/dani koji se BRIŠU iz dokumenata
+# (klijent ručno popuni u Wordu/PDF-u prema svojim potrebama)
+SAMPLE_PERIODS_TO_BLANK = {
+    # Periodi godišnjeg/sedmičnog odmora i pauze - briše se da klijent sam popuni
+    "01.01.2026-31.12.2026": "________________________",
+    "01.10.2026-31.10.2026": "________________________",
+    "01.01.2026.godine": "_________ godine",
+    # Specifični datumi koji NISU referenca na zakon
+    "02.02.2026 god.": "______________ god.",
+    # Specifična vremena pauze
+    "10:00-10:30h": "____________",
+    "10:00-10:30": "____________",
+    # Specifični dan sedmičnog odmora - klijent bira po zaposlenom
+    "NEDELJA": "____________",
+    # Smjene u rasporedu (specifična satnica)
+    "07:00  do 15:00  h": "______ do ______ h",
+    "15:00  do_24:00  h": "______ do ______ h",
+    "_07:00  do 15:00": "______ do ______",
+    "_07:00": "______",
+    "do_24:00": "do ______",
+}
+
 
 def _build_replacements(company: dict, employee: Optional[dict], agency: dict, custom: dict) -> Dict[str, str]:
     """Gradi dictionary svih mogućih placeholdera za zamjenu."""
@@ -788,6 +846,17 @@ def _build_replacements(company: dict, employee: Optional[dict], agency: dict, c
                 # Don't replace DIREKTOR with employee position (DIREKTOR refers to company director)
                 if sample_pos.upper() != "DIREKTOR":
                     repl[sample_pos] = emp_pozicija
+    
+    # Brisanje specifičnih datuma/periode/dana - klijent ručno popuni
+    for sample_period, blank in SAMPLE_PERIODS_TO_BLANK.items():
+        repl[sample_period] = blank
+    
+    # Header datumi u dokumentima ("Ulcinj, 01.01.2026 god.") → grad firme + današnji datum
+    header_city = company_grad or "Ulcinj"
+    today_str = today.strftime("%d.%m.%Y")
+    repl["Ulcinj, 01.01.2026 god."] = f"{header_city}, {today_str} god."
+    repl["Ulcinj, 02.02.2026 god."] = f"{header_city}, {today_str} god."
+    repl["Ulcinj, 02.02.2026"] = f"{header_city}, {today_str}"
     
     # ========== ALSO support [PLACEHOLDER] syntax for future templates ==========
     repl.update({

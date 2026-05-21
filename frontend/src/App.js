@@ -7,6 +7,7 @@ import Layout from "@/components/Layout";
 import Dashboard from "@/components/Dashboard";
 import Companies from "@/components/Companies";
 import CompanyDetail from "@/components/CompanyDetail";
+import Persons from "@/components/Persons";
 import Documents from "@/components/Documents";
 import PdvTracking from "@/components/PdvTracking";
 import AgencySettings from "@/components/AgencySettings";
@@ -42,6 +43,7 @@ function App() {
           <Route index element={<Dashboard />} />
           <Route path="firme" element={<Companies />} />
           <Route path="firme/:id" element={<CompanyDetail />} />
+          <Route path="fizicka-lica" element={<Persons />} />
           <Route path="dokumenti" element={<Documents />} />
           <Route path="pdv-ioppd" element={<PdvTracking />} />
           <Route path="agencija" element={<AgencySettings />} />
