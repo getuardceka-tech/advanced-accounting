@@ -639,6 +639,7 @@ SAMPLE_DIRECTORS = [
     "ARIAN MARINI",
     "VESEL SUMA",
     "ALIRAMI SINANI", "SINANI ALIRAMI",
+    "ZIJA DODIĆ", "ZIJA DODIC",
 ]
 
 # Sample JMBG direktora
@@ -646,6 +647,7 @@ SAMPLE_DIRECTOR_JMBGS = [
     "0303987220166",
     "3105998220014",
     "3004985220014",
+    "3004974220012",
 ]
 
 # Sample adrese firmi
@@ -663,17 +665,36 @@ SAMPLE_COMPANY_ADDRESSES = [
 SAMPLE_REG_NUMBERS = ["5-1354657/001"]
 
 # Sample agency data (UVIJEK se zamjenjuju agencijskim podacima iz postavki)
-SAMPLE_AGENCY_DIRECTOR_NAMES = ["CEKOVIQ GETUARD", "GETUARD CEKOVIQ", "GETUARD CEKOVIQ"]
-SAMPLE_AGENCY_JMBGS = ["0806994223008"]
+# Agencija u šablonima može biti "Getuard Cekoviq" ili "Advanced Accounting" (D.O.O.)
+SAMPLE_AGENCY_NAMES = [
+    "D.O.O. ADVANCED ACCOUNTING- ULCINJ",
+    "D.O.O. ADVANCED ACCOUNTING - ULCINJ",
+    "DOO ADVANCED ACCOUNTING ULCINJ",
+    "ADVANCED ACCOUNTING ULCINJ",
+]
+SAMPLE_AGENCY_PIBS = ["03719073"]
+SAMPLE_AGENCY_DIRECTOR_NAMES = [
+    "CEKOVIQ GETUARD", "GETUARD CEKOVIQ",
+    "MIRSADA CEKOVIC", "MIRSADA CEKOVIQ",
+]
+SAMPLE_AGENCY_JMBGS = ["0806994223008", "2603972228013"]
 SAMPLE_AGENCY_ADDRESSES = ["Ulcinja, Brajša bb.", "Brajša bb."]
 
 # Sample zaposleni (zamjenjuju se izabranim zaposlenim)
 SAMPLE_EMPLOYEE_NAMES = [
     "ALEKSANDER CUROVIĆ", "ALEKSANDER CUROVIC",
     "RENATO JAKU",
+    "ZIJA DODIĆ", "ZIJA DODIC",
 ]
-SAMPLE_EMPLOYEE_JMBGS = ["1411008223029", "039066621"]
-SAMPLE_EMPLOYEE_POSITIONS = ["KONOBAR", "pomoćni radnik u gradjevinu", "pomocni radnik u gradjevinu"]
+SAMPLE_EMPLOYEE_JMBGS = ["1411008223029", "039066621", "3004974220012"]
+SAMPLE_EMPLOYEE_POSITIONS = [
+    "KONOBAR",
+    "KUVAR",
+    "pomoćni radnik u gradjevinu",
+    "pomocni radnik u gradjevinu",
+    "NK – nekvalifikovani radnik",
+    "NK - nekvalifikovani radnik",
+]
 
 
 def _build_replacements(company: dict, employee: Optional[dict], agency: dict, custom: dict) -> Dict[str, str]:
@@ -736,7 +757,15 @@ def _build_replacements(company: dict, employee: Optional[dict], agency: dict, c
         if company.get("maticni_broj"):
             repl[sample_reg] = company["maticni_broj"]
     
-    # Agency director - always replace samples with current agency data
+    # Agency name + PIB + director - always replace samples with current agency data
+    agency_naziv = agency.get("naziv", "")
+    agency_pib = agency.get("pib", "")
+    for sample_ag_name in SAMPLE_AGENCY_NAMES:
+        if agency_naziv:
+            repl[sample_ag_name] = agency_naziv
+    for sample_ag_pib in SAMPLE_AGENCY_PIBS:
+        if agency_pib:
+            repl[sample_ag_pib] = agency_pib
     for sample_ag in SAMPLE_AGENCY_DIRECTOR_NAMES:
         if agency_director:
             repl[sample_ag] = agency_director
@@ -756,7 +785,9 @@ def _build_replacements(company: dict, employee: Optional[dict], agency: dict, c
                 repl[sample_emp_jmbg] = emp_jmbg
         if emp_pozicija:
             for sample_pos in SAMPLE_EMPLOYEE_POSITIONS:
-                repl[sample_pos] = emp_pozicija
+                # Don't replace DIREKTOR with employee position (DIREKTOR refers to company director)
+                if sample_pos.upper() != "DIREKTOR":
+                    repl[sample_pos] = emp_pozicija
     
     # ========== ALSO support [PLACEHOLDER] syntax for future templates ==========
     repl.update({
@@ -863,6 +894,33 @@ def _docx_replace(doc: Document, replacements: Dict[str, str]):
                     replace_in_paragraph(paragraph)
 
 
+import subprocess
+
+def _convert_to_pdf(docx_path: Path) -> Optional[Path]:
+    """Konvertuje docx u PDF koristeći LibreOffice headless. Vraća putanju do PDF-a ili None."""
+    try:
+        pdf_path = docx_path.with_suffix('.pdf')
+        if pdf_path.exists():
+            return pdf_path
+        
+        # Run LibreOffice headless conversion
+        result = subprocess.run(
+            [
+                "soffice", "--headless", "--convert-to", "pdf",
+                "--outdir", str(docx_path.parent),
+                str(docx_path)
+            ],
+            capture_output=True, timeout=60
+        )
+        if result.returncode == 0 and pdf_path.exists():
+            return pdf_path
+        logging.warning(f"PDF conversion failed: {result.stderr.decode()[:200]}")
+        return None
+    except Exception as e:
+        logging.error(f"PDF conversion error: {e}")
+        return None
+
+
 @api_router.post("/documents/generate")
 async def generate_document(req: DocumentGenerateRequest, username: str = Depends(get_current_user)):
     template_path = TEMPLATES_DIR / req.template_filename
@@ -894,10 +952,15 @@ async def generate_document(req: DocumentGenerateRequest, username: str = Depend
     output_path = GENERATED_DIR / output_filename
     doc.save(str(output_path))
     
+    # Convert to PDF in background (it takes 2-3s)
+    pdf_filename = output_filename.replace('.docx', '.pdf')
+    _convert_to_pdf(output_path)  # Generates the PDF beside .docx
+    
     # Save record
     record = {
         "id": str(uuid.uuid4()),
         "filename": output_filename,
+        "pdf_filename": pdf_filename,
         "template": req.template_filename,
         "company_id": req.company_id,
         "company_naziv": company.get("naziv", ""),
@@ -911,9 +974,40 @@ async def generate_document(req: DocumentGenerateRequest, username: str = Depend
     return {
         "success": True,
         "filename": output_filename,
+        "pdf_filename": pdf_filename,
         "download_url": f"/api/documents/download/{output_filename}",
+        "preview_url": f"/api/documents/preview/{pdf_filename}",
         "record": record
     }
+
+
+@api_router.get("/documents/preview/{filename}")
+async def preview_document(filename: str, token: Optional[str] = None):
+    """Vraća PDF inline u browseru (za prikaz/štampu bez downloada)."""
+    if token:
+        try:
+            jwt.decode(token, JWT_SECRET, algorithms=[JWT_ALGORITHM])
+        except Exception:
+            raise HTTPException(401, "Neispravan token")
+    
+    safe_name = os.path.basename(filename)
+    file_path = GENERATED_DIR / safe_name
+    
+    # If PDF doesn't exist, try to generate it on the fly from sibling .docx
+    if not file_path.exists() and safe_name.endswith('.pdf'):
+        docx_sibling = GENERATED_DIR / safe_name.replace('.pdf', '.docx')
+        if docx_sibling.exists():
+            _convert_to_pdf(docx_sibling)
+    
+    if not file_path.exists():
+        raise HTTPException(404, "PDF nije pronađen")
+    
+    return FileResponse(
+        path=str(file_path),
+        filename=safe_name,
+        media_type='application/pdf',
+        headers={"Content-Disposition": f'inline; filename="{safe_name}"'}
+    )
 
 @api_router.get("/documents/download/{filename}")
 async def download_document(filename: str, token: Optional[str] = None):

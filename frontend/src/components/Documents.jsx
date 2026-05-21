@@ -2,7 +2,7 @@ import { useEffect, useState, useMemo } from "react";
 import { useSearchParams } from "react-router-dom";
 import {
   FileText, MagnifyingGlass, DownloadSimple, X, Check, Spinner, Sparkle,
-  CaretDown, FileDoc, FilePdf,
+  CaretDown, FileDoc, FilePdf, Printer,
 } from "@phosphor-icons/react";
 import api, { getToken, API } from "@/lib/api";
 
@@ -259,16 +259,30 @@ export default function Documents() {
                     Dokument je spreman!
                   </div>
                   <div style={{ fontSize: 13, color: "var(--text-tertiary)", marginBottom: 20 }}>
-                    Sva polja su popunjena. Preuzmite Word fajl ispod.
+                    Sva polja su popunjena podacima firme {genResult.record?.company_naziv ? `"${genResult.record.company_naziv}"` : ""}.
                   </div>
-                  <a
-                    href={`${API}/documents/download/${genResult.filename}?token=${getToken()}`}
-                    className="btn btn-primary btn-lg"
-                    download
-                    data-testid="download-generated-btn"
-                  >
-                    <DownloadSimple size={16} /> Preuzmi dokument
-                  </a>
+                  <div style={{ display: "flex", gap: 8, justifyContent: "center", flexWrap: "wrap" }}>
+                    <a
+                      href={`${API}/documents/preview/${genResult.pdf_filename}?token=${getToken()}`}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="btn btn-primary btn-lg"
+                      data-testid="open-pdf-btn"
+                    >
+                      <Printer size={16} /> Otvori PDF za štampu
+                    </a>
+                    <a
+                      href={`${API}/documents/download/${genResult.filename}?token=${getToken()}`}
+                      className="btn btn-secondary btn-lg"
+                      download
+                      data-testid="download-generated-btn"
+                    >
+                      <DownloadSimple size={16} /> Word (.docx)
+                    </a>
+                  </div>
+                  <div style={{ marginTop: 14, fontSize: 11.5, color: "var(--text-tertiary)" }}>
+                    PDF se otvara u novom tabu — pritisnite Ctrl+P za štampu.
+                  </div>
                 </div>
               )}
             </div>

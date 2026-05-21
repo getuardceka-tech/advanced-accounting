@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import {
   CaretLeft, Plus, PencilSimple, Trash, X, Check, Spinner, FileText,
-  Users, Buildings, DownloadSimple,
+  Users, Buildings, DownloadSimple, Printer,
 } from "@phosphor-icons/react";
 import api, { getToken, API } from "@/lib/api";
 
@@ -297,13 +297,26 @@ export default function CompanyDetail() {
                       <td style={{ fontSize: 12.5 }}>{d.employee_naziv || "—"}</td>
                       <td style={{ fontSize: 12.5 }}>{new Date(d.created_at).toLocaleString("sr-Latn-ME")}</td>
                       <td>
-                        <a
-                          href={`${API}/documents/download/${d.filename}?token=${getToken()}`}
-                          style={{ color: "var(--accent)", display: "flex", padding: 4 }}
-                          title="Preuzmi"
-                        >
-                          <DownloadSimple size={15} />
-                        </a>
+                        <div style={{ display: "flex", gap: 4, justifyContent: "flex-end" }}>
+                          {d.pdf_filename && (
+                            <a
+                              href={`${API}/documents/preview/${d.pdf_filename}?token=${getToken()}`}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              style={{ color: "var(--accent)", display: "flex", padding: 4 }}
+                              title="Otvori PDF za štampu"
+                            >
+                              <Printer size={15} />
+                            </a>
+                          )}
+                          <a
+                            href={`${API}/documents/download/${d.filename}?token=${getToken()}`}
+                            style={{ color: "var(--text-secondary)", display: "flex", padding: 4 }}
+                            title="Preuzmi Word"
+                          >
+                            <DownloadSimple size={15} />
+                          </a>
+                        </div>
                       </td>
                     </tr>
                   ))}
@@ -358,6 +371,9 @@ function EmployeeModal({ form, setForm, editing, onSave, onClose, saving, error 
           </button>
         </div>
         <div className="modal-body">
+          <div style={{ padding: "10px 12px", background: "#f8fafc", borderRadius: 8, marginBottom: 16, fontSize: 12.5, color: "var(--text-secondary)", borderLeft: "3px solid #2563eb" }}>
+            💡 <strong>Pozicija (radno mjesto)</strong> se automatski povezuje sa ugovorima o radu, odlukama o pauzi, godišnjem odmoru i drugim dokumentima — popunite je da izbjegnete ručno unošenje.
+          </div>
           <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 14 }}>
             <Field label="Ime *" value={form.ime} onChange={(v) => u("ime", v)} testid="emp-ime" />
             <Field label="Prezime *" value={form.prezime} onChange={(v) => u("prezime", v)} testid="emp-prezime" />
@@ -365,7 +381,7 @@ function EmployeeModal({ form, setForm, editing, onSave, onClose, saving, error 
             <Field label="Lična karta" value={form.licna_karta} onChange={(v) => u("licna_karta", v)} testid="emp-licna" />
             <Field label="Adresa" value={form.adresa} onChange={(v) => u("adresa", v)} testid="emp-adresa" />
             <Field label="Grad" value={form.grad} onChange={(v) => u("grad", v)} testid="emp-grad" />
-            <Field label="Pozicija (radno mjesto)" value={form.pozicija} onChange={(v) => u("pozicija", v)} testid="emp-pozicija" />
+            <Field label="Pozicija — radno mjesto ⭐" value={form.pozicija} onChange={(v) => u("pozicija", v)} testid="emp-pozicija" />
             <Field label="Stručna sprema" value={form.strucna_sprema} onChange={(v) => u("strucna_sprema", v)} testid="emp-ss" />
             <Field label="Bruto plata (€)" value={form.plata_bruto} onChange={(v) => u("plata_bruto", v)} testid="emp-bruto" type="number" />
             <Field label="Neto plata (€)" value={form.plata_neto} onChange={(v) => u("plata_neto", v)} testid="emp-neto" type="number" />
