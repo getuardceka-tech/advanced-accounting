@@ -9,7 +9,7 @@ import api, { getToken, API } from "@/lib/api";
 const empEmpty = {
   ime: "", prezime: "", jmbg: "", licna_karta: "", adresa: "", grad: "",
   pozicija: "", strucna_sprema: "", plata_bruto: 0, plata_neto: 0,
-  datum_pocetka: "", vrsta_ugovora: "neodredjeno", radno_vrijeme: "puno",
+  datum_pocetka: "", datum_kraja: "", vrsta_ugovora: "neodredjeno", radno_vrijeme: "puno",
   telefon: "", email: "", aktivan: true,
 };
 
@@ -393,6 +393,9 @@ function EmployeeModal({ form, setForm, editing, onSave, onClose, saving, error 
                 <option value="odredjeno">Na određeno</option>
               </select>
             </div>
+            {form.vrsta_ugovora === "odredjeno" && (
+              <Field label="Datum kraja ugovora (određeno)" value={form.datum_kraja} onChange={(v) => u("datum_kraja", v)} testid="emp-datum-kraja" type="date" />
+            )}
             <div className="field-group">
               <label className="field-label">Radno vrijeme</label>
               <select className="select" value={form.radno_vrijeme} onChange={(e) => u("radno_vrijeme", e.target.value)}>

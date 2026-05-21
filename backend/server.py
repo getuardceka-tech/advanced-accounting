@@ -138,6 +138,7 @@ class Employee(BaseModel):
     plata_bruto: float = 0.0
     plata_neto: float = 0.0
     datum_pocetka: str = ""
+    datum_kraja: str = ""
     vrsta_ugovora: str = "neodredjeno"  # odredjeno/neodredjeno
     radno_vrijeme: str = "puno"  # puno/skraceno
     telefon: str = ""
@@ -158,6 +159,7 @@ class EmployeeCreate(BaseModel):
     plata_bruto: Optional[float] = 0.0
     plata_neto: Optional[float] = 0.0
     datum_pocetka: Optional[str] = ""
+    datum_kraja: Optional[str] = ""
     vrsta_ugovora: Optional[str] = "neodredjeno"
     radno_vrijeme: Optional[str] = "puno"
     telefon: Optional[str] = ""
@@ -867,19 +869,54 @@ def _build_replacements(company: dict, employee: Optional[dict], agency: dict, c
         # Datum zasnivanja radnog odnosa / stupanja na rad / zaključenja ugovora
         # → uzima se iz emp.datum_pocetka (kad je upisan u formi)
         emp_start = employee.get("datum_pocetka", "")
+        emp_end = employee.get("datum_kraja", "")
+        vrsta = (employee.get("vrsta_ugovora") or "neodredjeno").lower()
+        
+        formatted_start = ""
+        formatted_end = ""
         if emp_start:
-            # Konvertuj YYYY-MM-DD → DD.MM.YYYY
-            formatted_start = emp_start
             try:
                 dt = datetime.fromisoformat(emp_start.replace('Z', ''))
                 formatted_start = dt.strftime("%d.%m.%Y")
             except Exception:
-                pass
+                formatted_start = emp_start
+        if emp_end:
+            try:
+                dt = datetime.fromisoformat(emp_end.replace('Z', ''))
+                formatted_end = dt.strftime("%d.%m.%Y")
+            except Exception:
+                formatted_end = emp_end
+        
+        # Konstruktor dinamičke fraze "određeno/neodređeno vrijeme rada i to od ..."
+        if formatted_start:
+            if vrsta == "odredjeno":
+                end_part = formatted_end if formatted_end else "____________"
+                contract_phrase = f"određeno vrijeme rada i to od  {formatted_start} - {end_part} godine"
+            else:
+                contract_phrase = f"neodređeno vrijeme rada i to od  {formatted_start} godine"
+            
+            # Zamjeni obje varijante iz šablona sa dinamičkom frazom
+            repl["određeno vrijeme rada i to od  09.02.2026 -31.12.2026 godine"] = contract_phrase
+            repl["neodređeno vrijeme rada i to od  19.11.2025 godine"] = contract_phrase
+            
+            # Dopunski rad: "period od 01.02.2026  i važi do 31.12.2026"
+            if vrsta == "odredjeno":
+                end_part2 = formatted_end if formatted_end else "____________"
+                repl["period od 01.02.2026  i važi do 31.12.2026"] = f"period od {formatted_start}  i važi do {end_part2}"
+            else:
+                repl["period od 01.02.2026  i važi do 31.12.2026"] = f"period od {formatted_start} (na neodređeno vrijeme)"
+        
+        # Pojedinačni datumi zaposlenog (datum stupanja, datum zaključenja itd.)
+        if formatted_start:
             for sample_date in SAMPLE_EMPLOYEE_START_DATES:
                 repl[sample_date] = formatted_start
-        # End-of-contract period blank (za određeno vrijeme - klijent ručno)
-        repl["-31.12.2026 godine"] = "- ____________ godine"
-        repl["važi do 31.12.2026"] = "važi do ____________"
+        # End-of-contract period blank/datum_kraja
+        if formatted_end:
+            repl["-31.12.2026 godine"] = f"- {formatted_end} godine"
+            repl["važi do 31.12.2026"] = f"važi do {formatted_end}"
+        else:
+            repl["-31.12.2026 godine"] = "- ____________ godine"
+            repl["važi do 31.12.2026"] = "važi do ____________"
     
     # Brisanje specifičnih datuma/periode/dana - klijent ručno popuni
     for sample_period, blank in SAMPLE_PERIODS_TO_BLANK.items():

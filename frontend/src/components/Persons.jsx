@@ -10,7 +10,7 @@ const empEmpty = {
   company_id: "",
   ime: "", prezime: "", jmbg: "", licna_karta: "", adresa: "", grad: "",
   pozicija: "", strucna_sprema: "", plata_bruto: 0, plata_neto: 0,
-  datum_pocetka: "", vrsta_ugovora: "neodredjeno", radno_vrijeme: "puno",
+  datum_pocetka: "", datum_kraja: "", vrsta_ugovora: "neodredjeno", radno_vrijeme: "puno",
   telefon: "", email: "", aktivan: true,
 };
 
@@ -273,11 +273,14 @@ function PersonModal({ form, setForm, editing, companies, onSave, onClose, savin
             <Field label="Datum početka rada" value={form.datum_pocetka} onChange={(v) => u("datum_pocetka", v)} type="date" />
             <div className="field-group">
               <label className="field-label">Vrsta ugovora</label>
-              <select className="select" value={form.vrsta_ugovora} onChange={(e) => u("vrsta_ugovora", e.target.value)}>
+              <select className="select" value={form.vrsta_ugovora} onChange={(e) => u("vrsta_ugovora", e.target.value)} data-testid="person-vrsta">
                 <option value="neodredjeno">Na neodređeno</option>
                 <option value="odredjeno">Na određeno</option>
               </select>
             </div>
+            {form.vrsta_ugovora === "odredjeno" && (
+              <Field label="Datum kraja ugovora (određeno)" value={form.datum_kraja} onChange={(v) => u("datum_kraja", v)} type="date" testid="person-datum-kraja" />
+            )}
             <Field label="Telefon" value={form.telefon} onChange={(v) => u("telefon", v)} />
             <Field label="Email" value={form.email} onChange={(v) => u("email", v)} />
           </div>
