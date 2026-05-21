@@ -1396,6 +1396,87 @@ def _build_replacements(company: dict, employee: Optional[dict], agency: dict, c
             repl["1.8.Telefon - i, fax - i, e-mail ______________________________________________________________"] = \
                 f"1.8.Telefon - i, fax - i, e-mail  {company_tel_val}"
     
+    # "Zahtjev za uzorkovanje i ispitivanje" (BRISEVA / HRANA / VODA ZA PICE)
+    # Brišemo dummy podatke (npr. "DOO FRIENDS CAFFE", "VLADIMIR BB", brojevi)
+    # i popunjavamo blank-line polja podacima izabrane firme.
+    if "uzorkovanje" in tname_lower:
+        company_tel_val2 = company.get("telefon") or agency.get("telefon", "")
+        company_pdv_val = company.get("pdv_broj", "")
+        adresa_full = f"{company_adresa}, {company_grad}".strip(", ") if (company_adresa or company_grad) else ""
+        
+        # === BRISEVA exact paragraph blocks ===
+        if company_naziv:
+            repl["Podaci o objektu (navesti tačan naziv i adresu)________________________________________ DOO FRIENDS CAFFE ULCINJ"] = \
+                f"Podaci o objektu: {company_naziv}, {adresa_full}".rstrip(", ")
+            repl["Podaci o objektu (navesti tačan naziv i adresu)________________________________________"] = \
+                f"Podaci o objektu: {company_naziv}, {adresa_full}".rstrip(", ")
+        # Standalone sample value paragrafi (briše ih ili zamjenjuje company name)
+        repl["DOO FRIENDS CAFFE ULCINJ "] = ""
+        repl["FRIENDS CAFFE ULCINJ "] = ""
+        # "VLADIMIR BB \nAdresa: ____" - bilo standalone bilo s tabom
+        if adresa_full:
+            repl["\tVLADIMIR BB \nAdresa: _______________________________________________________________________ "] = \
+                f"Adresa: {adresa_full}"
+            repl["VLADIMIR BB \nAdresa: _______________________________________________________________________"] = \
+                f"Adresa: {adresa_full}"
+            repl["Adresa: _______________________________________________________________________"] = \
+                f"Adresa: {adresa_full}"
+        # PIB blok
+        if company_pib:
+            repl["\t03314367 \nPIB: _______________________________________ "] = f"PIB: {company_pib}"
+            repl["03314367 \nPIB: _______________________________________"] = f"PIB: {company_pib}"
+            repl["PIB: _______________________________________"] = f"PIB: {company_pib}"
+        # PDV (BRISEVA)
+        if company_pdv_val:
+            repl["\t82/31-02356-8 \nPDV: ______________________________________ "] = f"PDV: {company_pdv_val}"
+            repl["82/31-02356-8 \nPDV: ______________________________________"] = f"PDV: {company_pdv_val}"
+            repl["PDV: ______________________________________"] = f"PDV: {company_pdv_val}"
+        else:
+            repl["\t82/31-02356-8 \nPDV: ______________________________________ "] = "PDV: ____________"
+            repl["82/31-02356-8 \nPDV: ______________________________________"] = "PDV: ____________"
+        # Telefon (BRISEVA)
+        if company_tel_val2:
+            repl["Kontakt tel/FAX:_______________________________________________________________ 069688102"] = \
+                f"Kontakt tel/FAX: {company_tel_val2}"
+            repl["Kontakt tel/FAX:_______________________________________________________________"] = \
+                f"Kontakt tel/FAX: {company_tel_val2}"
+        
+        # === HRANA exact paragraph blocks ===
+        if company_naziv and adresa_full:
+            repl["Podaci o objektu (navesti tačan naziv i adresu)________________________________________ "] = \
+                f"Podaci o objektu: {company_naziv}, {adresa_full}"
+        # Standalone sample CULT lines
+        repl['DRUŠTVO SA OGRANIČENOM ODGOVORNOŠĆU "CULT ULCINJ" ZA TRGOVINU, UGOSTITELJSTVO I _____________________________________________________________________________'] = ""
+        repl['USLUGE "EXPORT-IMPORT" ULCINJ'] = ""
+        if company_naziv:
+            repl["_____________________________________________________________________________ DOO CULT ULCINJ"] = \
+                f"Naziv: {company_naziv}"
+        if adresa_full:
+            repl["Adresa: _______________________________________________________________________ UL.VELLEZERIT FRASHERI BB ULCINJ"] = \
+                f"Adresa: {adresa_full}"
+        if company_pib:
+            repl["PIB: _______________________________________ 03801969"] = f"PIB: {company_pib}"
+        # PDV+Telefon kombinovani blok (HRANA)
+        pdv_str = company_pdv_val if company_pdv_val else "____________"
+        tel_str = company_tel_val2 if company_tel_val2 else "____________"
+        repl["\t82/31-03288-7 \nPDV: ______________________________________ \n\t069628880 \nKontakt tel:_______________________________________________________________ "] = \
+            f"PDV: {pdv_str}\nKontakt tel: {tel_str}"
+        repl["82/31-03288-7 \nPDV: ______________________________________ \n\t069628880 \nKontakt tel:_______________________________________________________________"] = \
+            f"PDV: {pdv_str}\nKontakt tel: {tel_str}"
+        repl["Kontakt tel:_______________________________________________________________"] = \
+            f"Kontakt tel: {tel_str}"
+        
+        # === VODA ZA PICE - dummy podaci (uglavnom u tabelama, već pokriveni kroz SAMPLE) ===
+        repl["LOUNGE BAR CULT"] = company.get("naziv_skraceni") or company_naziv or "____________"
+        # Multi-line CULT naziv u VODA tabelama (newline između linija)
+        if company_naziv:
+            repl['DRUŠTVO SA OGRANIČENOM ODGOVORNOŠĆU "CULT ULCINJ" ZA TRGOVINU, \nUGOSTITELJSTVO I USLUGE "EXPORT-IMPORT" ULCINJ'] = company_naziv
+            repl['DRUŠTVO SA OGRANIČENOM ODGOVORNOŠĆU "CULT ULCINJ" ZA TRGOVINU,\nUGOSTITELJSTVO I USLUGE "EXPORT-IMPORT" ULCINJ'] = company_naziv
+            # VODA pat — paragraf 1 i paragraf 2 odvojeno (u istoj ćeliji)
+            repl['\tDRUŠTVO SA OGRANIČENOM ODGOVORNOŠĆU "CULT ULCINJ" ZA TRGOVINU, '] = f"\t{company_naziv}"
+            repl['DRUŠTVO SA OGRANIČENOM ODGOVORNOŠĆU "CULT ULCINJ" ZA TRGOVINU,'] = company_naziv
+            repl['UGOSTITELJSTVO I USLUGE "EXPORT-IMPORT" ULCINJ'] = ""
+    
     return repl
 
 
