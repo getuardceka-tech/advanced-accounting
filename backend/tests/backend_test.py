@@ -168,10 +168,15 @@ class TestCompanies:
             assert c.get("pdv_obveznik") is True
 
     def test_ioppd_only_filter(self, auth_headers, test_company):
+        """IOPPD filter sad vraća SVE firme osim preduzetnika bez zaposlenih."""
         r = requests.get(f"{API}/companies?ioppd_only=true", headers=auth_headers)
         assert r.status_code == 200
         for c in r.json():
-            assert c.get("ioppd_obveznik") is True
+            oblik = (c.get("oblik_organizovanja") or "").lower()
+            if "preduzetnik" in oblik:
+                # preduzetnik mora imati barem 1 zaposlenog
+                emps = requests.get(f"{API}/employees?company_id={c['id']}", headers=auth_headers).json()
+                assert len(emps) > 0, f"Preduzetnik bez zaposlenih ne smije biti u IOPPD listi: {c['naziv']}"
 
 
 # ---------- IRMS LOOKUP ----------

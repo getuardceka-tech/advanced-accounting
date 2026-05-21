@@ -87,6 +87,7 @@ class Company(BaseModel):
     grad: str = ""
     djelatnost: str = ""
     sifra_djelatnosti: str = ""
+    oblik_organizovanja: str = ""  # iz IRMS-a: "Preduzetnik", "Društvo sa ograničenom odgovornošću", itd.
     direktor_ime: str = ""
     direktor_jmbg: str = ""
     direktor_adresa: str = ""
@@ -115,6 +116,7 @@ class CompanyCreate(BaseModel):
     grad: Optional[str] = ""
     djelatnost: Optional[str] = ""
     sifra_djelatnosti: Optional[str] = ""
+    oblik_organizovanja: Optional[str] = ""
     direktor_ime: Optional[str] = ""
     direktor_jmbg: Optional[str] = ""
     direktor_adresa: Optional[str] = ""
@@ -513,6 +515,7 @@ async def lookup_pib(pib: str, username: str = Depends(get_current_user)):
 # ============== COMPANIES ROUTES ==============
 
 @api_router.get("/companies")
+@api_router.get("/companies")
 async def list_companies(
     search: Optional[str] = None,
     pdv_only: bool = False,
@@ -522,8 +525,6 @@ async def list_companies(
     query: Dict[str, Any] = {}
     if pdv_only:
         query["pdv_obveznik"] = True
-    if ioppd_only:
-        query["ioppd_obveznik"] = True
     if search:
         regex = re.escape(search)
         query["$or"] = [
@@ -532,6 +533,21 @@ async def list_companies(
             {"direktor_ime": {"$regex": regex, "$options": "i"}},
         ]
     companies = await db.companies.find(query, {"_id": 0}).sort("naziv", 1).to_list(1000)
+    
+    # IOPPD filter: sve firme OSIM preduzetnika BEZ zaposlenih
+    if ioppd_only:
+        result = []
+        for c in companies:
+            oblik = (c.get("oblik_organizovanja") or "").lower()
+            is_preduzetnik = "preduzetnik" in oblik
+            if is_preduzetnik:
+                # Provjeri da li ima zaposlenih
+                emp_count = await db.employees.count_documents({"company_id": c["id"]})
+                if emp_count == 0:
+                    continue  # preskoči preduzetnika bez zaposlenih
+            result.append(c)
+        return result
+    
     return companies
 
 @api_router.get("/companies/irms-alerts")

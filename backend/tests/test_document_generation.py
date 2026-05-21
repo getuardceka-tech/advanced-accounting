@@ -44,23 +44,20 @@ def auth_headers():
 
 @pytest.fixture(scope="module")
 def test_company(auth_headers):
-    """Use an existing company (with ziro_racun) or create one."""
+    """Create/use a DEDICATED test company by PIB '99999999' — never touches user data."""
+    TEST_PIB = "99999999"
     companies = requests.get(f"{API}/companies", headers=auth_headers).json()
-    # Prefer a company with a ziro_racun
     chosen = None
     for c in companies:
-        if c.get("ziro_racun"):
+        if c.get("pib") == TEST_PIB:
             chosen = c
             break
-    if not chosen and companies:
-        chosen = companies[0]
     if chosen:
         # Patch missing fields
         upd = dict(chosen)
         changed = False
         if not upd.get("ziro_racun"):
-            upd["ziro_racun"] = "510-00012345678-90"
-            changed = True
+            upd["ziro_racun"] = "510-00012345678-90"; changed = True
         if not upd.get("adresa"):
             upd["adresa"] = "Glavna ulica 1"; changed = True
         if not upd.get("telefon"):
@@ -73,10 +70,10 @@ def test_company(auth_headers):
             requests.put(f"{API}/companies/{chosen['id']}", json=upd, headers=auth_headers)
             chosen = requests.get(f"{API}/companies/{chosen['id']}", headers=auth_headers).json()
         return chosen
-    # else create
+    # else create dedicated test company
     payload = {
         "naziv": "TEST_DOC_FIRMA_DOO",
-        "pib": "98765432",
+        "pib": TEST_PIB,
         "naziv_skraceni": "TEST DOC",
         "adresa": "Glavna ulica 1",
         "grad": "Ulcinj",
@@ -96,11 +93,12 @@ def test_company(auth_headers):
 
 @pytest.fixture(scope="module")
 def test_employee_with_datum_kraja(auth_headers, test_company):
-    """Ensure there exists an employee with datum_kraja set on test_company."""
+    """Ensure there exists a 'Vesel Suma' test employee with datum_kraja on the DEDICATED test_company.
+    Idempotent: re-uses existing if found, never creates duplicates."""
     emps = requests.get(f"{API}/employees?company_id={test_company['id']}", headers=auth_headers).json()
     for e in emps:
-        if e.get("datum_kraja"):
-            return e
+        if e.get("jmbg") == "0101990123456":
+            return e  # already exists, return existing
     # else create
     payload = {
         "company_id": test_company["id"],
