@@ -370,7 +370,7 @@ function PersonModal({ form, setForm, editing, companies, onSave, onClose, onSav
                 >10h</button>
               </div>
               <div style={{ fontSize: 11, color: "var(--text-tertiary)", marginTop: 4 }}>
-                {form.sati_sedmicno >= 40 ? "Puno radno vrijeme" : `Skraćeno radno vrijeme — ${form.sati_sedmicno}h sedmično`}
+                {form.sati_sedmicno >= 40 ? "Puno radno vrijeme" : `Nepuno radno vrijeme — ${form.sati_sedmicno}h nedeljno`}
               </div>
             </div>
             {form.vrsta_ugovora === "odredjeno" && (

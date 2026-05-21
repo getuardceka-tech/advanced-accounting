@@ -1367,13 +1367,13 @@ def _build_replacements(company: dict, employee: Optional[dict], agency: dict, c
             "[TELEFON_RADNIKA]": employee.get("telefon", ""),
         })
         
-        # UGOVOR O RADU — automatska zamjena broja sati i pun/skraćeno
+        # UGOVOR O RADU — automatska zamjena broja sati i pun/nepuno
         # Šablon: "3. Zaposleni zasniva radni odnos sa __punim______ radnim vremenom u trajanju od  40  sati nedeljno."
         emp_sati = int(employee.get("sati_sedmicno") or 40)
         emp_vrste = (employee.get("radno_vrijeme") or "puno").lower()
-        # Ako je <40, automatski je skraćeno
-        if emp_sati < 40 or emp_vrste in ("skraceno", "skraćeno"):
-            radno_label = "skraćenim"
+        # Ako je <40, automatski je nepuno
+        if emp_sati < 40 or emp_vrste in ("skraceno", "skraćeno", "nepuno"):
+            radno_label = "nepunim"
         else:
             radno_label = "punim"
         # Originalni tekst iz šablona (sa underscore-ima)
