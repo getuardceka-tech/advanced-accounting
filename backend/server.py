@@ -362,12 +362,15 @@ async def update_agency(data: Agency, username: str = Depends(get_current_user))
 @api_router.get("/companies/lookup-pib")
 async def lookup_pib(pib: str, username: str = Depends(get_current_user)):
     """
-    Pokušaj automatskog dohvata podataka firme iz IRMS Crne Gore.
-    https://irms.tax.gov.me/public/search-register/business-entities
+    Automatski dohvat podataka firme iz IRMS portala Poreske uprave Crne Gore.
+    Koristi javne API-je:
+      1) GET /public/api/business-entities?identificationNumber={pib}  - search
+      2) GET /public/api/business-entity/{taxpayerId}                  - detalji
+      3) GET /public/api/business-entity/{taxpayerId}/ownership-roles  - direktori
     """
     pib = pib.strip()
-    if not pib or not pib.isdigit():
-        raise HTTPException(400, "PIB mora biti broj")
+    if not pib or not pib.isdigit() or len(pib) < 6:
+        raise HTTPException(400, "PIB mora biti broj sa minimalno 6 cifara")
     
     result = {
         "success": False,
@@ -377,106 +380,127 @@ async def lookup_pib(pib: str, username: str = Depends(get_current_user)):
         "message": ""
     }
     
-    # Try common IRMS API patterns
-    api_endpoints = [
-        {
-            "url": "https://irms.tax.gov.me/api/public/business-entities/search",
-            "method": "POST",
-            "json": {"pibOrRegistrationNumber": pib}
-        },
-        {
-            "url": "https://irms.tax.gov.me/api/public/search-register/business-entities",
-            "method": "POST",
-            "json": {"pib": pib, "registrationNumber": pib}
-        },
-        {
-            "url": f"https://irms.tax.gov.me/api/public/business-entities?pib={pib}",
-            "method": "GET",
-            "json": None
-        },
-    ]
-    
     headers = {
-        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
         "Accept": "application/json, text/plain, */*",
-        "Accept-Language": "en-US,en;q=0.9,sr;q=0.8",
+        "Accept-Language": "sr-Latn-ME,sr;q=0.9,en;q=0.8",
         "Origin": "https://irms.tax.gov.me",
         "Referer": "https://irms.tax.gov.me/public/search-register/business-entities",
     }
     
-    for endpoint in api_endpoints:
+    try:
+        # 1) Pretraga po PIB-u
+        search_url = f"https://irms.tax.gov.me/public/api/business-entities?page=1&perPage=5&identificationNumber={pib}"
+        search_resp = requests.get(search_url, headers=headers, timeout=10)
+        if search_resp.status_code != 200:
+            result["message"] = f"IRMS portal vratio status {search_resp.status_code}"
+            return result
+        
+        search_data = search_resp.json()
+        results_list = search_data.get("results", [])
+        if not results_list:
+            result["message"] = "Firma sa ovim PIB-om nije pronađena u IRMS registru"
+            return result
+        
+        taxpayer = results_list[0]
+        taxpayer_id = taxpayer.get("taxpayerId")
+        
+        if not taxpayer_id:
+            result["message"] = "IRMS odgovor ne sadrži taxpayerId"
+            return result
+        
+        # 2) Detalji
+        detail_url = f"https://irms.tax.gov.me/public/api/business-entity/{taxpayer_id}"
+        detail_resp = requests.get(detail_url, headers=headers, timeout=10)
+        detail = detail_resp.json() if detail_resp.status_code == 200 else {}
+        
+        # 3) Ownership roles (za direktora)
+        direktor_ime = ""
         try:
-            if endpoint["method"] == "POST":
-                resp = requests.post(endpoint["url"], json=endpoint["json"], headers=headers, timeout=8)
-            else:
-                resp = requests.get(endpoint["url"], headers=headers, timeout=8)
-            
-            if resp.status_code == 200:
-                try:
-                    data = resp.json()
-                    # Parse data - try common field names
-                    parsed = _parse_irms_response(data, pib)
-                    if parsed:
-                        result["success"] = True
-                        result["data"] = parsed
-                        result["message"] = "Podaci uspješno preuzeti sa IRMS portala"
-                        return result
-                except Exception:
-                    pass
+            roles_url = f"https://irms.tax.gov.me/public/api/business-entity/{taxpayer_id}/ownership-roles?id={taxpayer_id}&page=1&perPage=25"
+            roles_resp = requests.get(roles_url, headers=headers, timeout=8)
+            if roles_resp.status_code == 200:
+                roles_data = roles_resp.json()
+                for role in roles_data.get("results", []):
+                    role_name = (role.get("role") or "").lower()
+                    if "izvršni direktor" in role_name or "direktor" in role_name:
+                        first = role.get("name") or ""
+                        last = role.get("lastname") or ""
+                        direktor_ime = f"{first} {last}".strip()
+                        if direktor_ime:
+                            break
+                # Fallback: ako nije direktor, uzmi ovlašćenog zastupnika
+                if not direktor_ime:
+                    for role in roles_data.get("results", []):
+                        first = role.get("name") or ""
+                        last = role.get("lastname") or ""
+                        direktor_ime = f"{first} {last}".strip()
+                        if direktor_ime:
+                            break
         except Exception as e:
-            logging.warning(f"IRMS endpoint failed: {endpoint['url']}: {e}")
-            continue
+            logging.warning(f"IRMS ownership-roles fetch failed: {e}")
+        
+        # Mapiranje na company schema
+        full_name = detail.get("fullName") or taxpayer.get("fullName", "")
+        short_name = detail.get("shortName") or ""
+        registration_number = detail.get("registrationNumber") or taxpayer.get("registrationNumber", "")
+        
+        # Šifra djelatnosti: "5610, Djelatnosti restorana..." → ("5610", "Djelatnosti restorana...")
+        main_activity = detail.get("mainActivity") or taxpayer.get("mainActivity", "")
+        sifra_djelatnosti = ""
+        djelatnost_naziv = main_activity
+        if main_activity and "," in main_activity:
+            parts = main_activity.split(",", 1)
+            potential_code = parts[0].strip()
+            if potential_code.isdigit():
+                sifra_djelatnosti = potential_code
+                djelatnost_naziv = parts[1].strip()
+        
+        # Grad: "Ulcinj, Crna Gora" → "Ulcinj"
+        city_raw = detail.get("city") or ""
+        grad = city_raw.split(",")[0].strip() if city_raw else ""
+        
+        # Datum registracije: "11/19/2025 00:00:00" → "2025-11-19"
+        datum_registracije = ""
+        reg_date_raw = detail.get("registrationDate") or ""
+        if reg_date_raw:
+            try:
+                # Format: "11/19/2025 00:00:00" (MM/DD/YYYY)
+                date_part = reg_date_raw.split()[0]
+                m, d, y = date_part.split("/")
+                datum_registracije = f"{y}-{int(m):02d}-{int(d):02d}"
+            except Exception:
+                pass
+        
+        result["success"] = True
+        result["data"] = {
+            "naziv": full_name,
+            "naziv_skraceni": short_name,
+            "maticni_broj": registration_number,
+            "pib": detail.get("identificationNumber") or taxpayer.get("identificationNumber", pib),
+            "adresa": detail.get("address") or "",
+            "grad": grad,
+            "email": detail.get("email") or "",
+            "telefon": detail.get("phoneNumber") or "",
+            "website": detail.get("website") or "",
+            "djelatnost": djelatnost_naziv,
+            "sifra_djelatnosti": sifra_djelatnosti,
+            "direktor_ime": direktor_ime,
+            "oblik_organizovanja": detail.get("legalStatus") or "",
+            "datum_registracije": datum_registracije,
+            "status": detail.get("taxpayerStatusDisplayName") or "",
+        }
+        result["message"] = "Podaci uspješno preuzeti sa IRMS portala"
+        return result
     
-    result["message"] = (
-        "IRMS portal trenutno nije dostupan za automatsko popunjavanje. "
-        "Molimo unesite podatke ručno ili koristite link za CRPS pretragu."
-    )
-    result["crps_link"] = f"https://irms.tax.gov.me/public/search-register/business-entities"
-    return result
-
-
-def _parse_irms_response(data: Any, pib: str) -> Optional[Dict[str, str]]:
-    """Pokušaj izvući podatke firme iz IRMS odgovora."""
-    if not data:
-        return None
-    
-    # Try to find first match
-    items = []
-    if isinstance(data, list):
-        items = data
-    elif isinstance(data, dict):
-        for key in ['data', 'items', 'results', 'content', 'businessEntities']:
-            if key in data and isinstance(data[key], list):
-                items = data[key]
-                break
-        if not items and data:
-            items = [data]
-    
-    if not items:
-        return None
-    
-    item = items[0]
-    if not isinstance(item, dict):
-        return None
-    
-    # Map fields
-    def find_field(*keys):
-        for key in keys:
-            for k, v in item.items():
-                if key.lower() in k.lower() and v:
-                    return str(v)
-        return ""
-    
-    return {
-        "naziv": find_field("name", "naziv", "businessName", "companyName"),
-        "pib": find_field("pib", "taxNumber"),
-        "maticni_broj": find_field("registrationNumber", "maticni", "registration"),
-        "adresa": find_field("address", "adresa", "street"),
-        "grad": find_field("city", "grad", "municipality"),
-        "djelatnost": find_field("activity", "djelatnost", "businessActivity"),
-        "sifra_djelatnosti": find_field("activityCode", "sifra"),
-        "direktor_ime": find_field("director", "representative", "directorName"),
-    }
+    except requests.RequestException as e:
+        logging.error(f"IRMS request failed: {e}")
+        result["message"] = "IRMS portal trenutno nedostupan. Probajte ponovo kasnije."
+        return result
+    except Exception as e:
+        logging.error(f"IRMS lookup error: {e}")
+        result["message"] = f"Greška pri obradi IRMS odgovora: {str(e)[:120]}"
+        return result
 
 
 # ============== COMPANIES ROUTES ==============

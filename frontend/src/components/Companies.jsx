@@ -118,28 +118,32 @@ export default function Companies() {
     load();
   };
 
-  const lookupIRMS = async () => {
-    if (!form.pib) {
+  const lookupIRMS = async (overridePib) => {
+    const pib = (overridePib || form.pib || "").trim();
+    if (!pib) {
       setError("Unesite PIB prvo");
       return;
     }
     setLookupBusy(true);
     setLookupMsg("");
     try {
-      const r = await api.get(`/companies/lookup-pib?pib=${form.pib}`);
+      const r = await api.get(`/companies/lookup-pib?pib=${pib}`);
       if (r.data.success && r.data.data) {
         const data = r.data.data;
         setForm((f) => ({
           ...f,
           naziv: data.naziv || f.naziv,
+          naziv_skraceni: data.naziv_skraceni || f.naziv_skraceni,
           maticni_broj: data.maticni_broj || f.maticni_broj,
           adresa: data.adresa || f.adresa,
           grad: data.grad || f.grad,
           djelatnost: data.djelatnost || f.djelatnost,
           sifra_djelatnosti: data.sifra_djelatnosti || f.sifra_djelatnosti,
           direktor_ime: data.direktor_ime || f.direktor_ime,
+          telefon: data.telefon || f.telefon,
+          email: data.email || f.email,
         }));
-        setLookupMsg("✓ Podaci preuzeti sa IRMS portala");
+        setLookupMsg(`✓ Podaci preuzeti sa IRMS portala (${data.status || "Registrovan"})`);
       } else {
         setLookupMsg(
           r.data.message ||
@@ -152,6 +156,22 @@ export default function Companies() {
       setLookupBusy(false);
     }
   };
+  
+  // Auto-lookup kad korisnik završi unos PIB-a (debounce 700ms + min 6 cifara)
+  // Samo za kreiranje (ne za izmjenu postojeće firme).
+  useEffect(() => {
+    if (editing) return; // ne radi auto-lookup u edit modu
+    if (!modalOpen) return;
+    const pib = (form.pib || "").trim();
+    if (!pib || !/^\d{6,}$/.test(pib)) return;
+    // Već imamo popunjen naziv (vjerovatno već radio lookup) → ne ponavljaj
+    if (form.naziv && form.naziv.length > 3) return;
+    const t = setTimeout(() => {
+      lookupIRMS(pib);
+    }, 700);
+    return () => clearTimeout(t);
+    // eslint-disable-next-line
+  }, [form.pib, modalOpen, editing]);
 
   return (
     <div data-testid="companies-page">
@@ -365,12 +385,13 @@ function CompanyModal({ form, setForm, editing, onSave, onClose, saving, error, 
               </div>
               <button
                 className="btn btn-secondary"
-                onClick={onLookup}
+                onClick={() => onLookup()}
                 disabled={lookupBusy || !form.pib}
                 data-testid="irms-lookup-btn"
+                title="Automatski preuzmi podatke firme sa IRMS portala"
               >
                 {lookupBusy ? <Spinner size={14} className="spin" /> : <ArrowsClockwise size={14} />}
-                IRMS pretraga
+                {lookupBusy ? "Učitavam..." : "Auto popuni"}
               </button>
               <a
                 href={`https://irms.tax.gov.me/public/search-register/business-entities`}
