@@ -1197,8 +1197,13 @@ def _build_replacements(company: dict, employee: Optional[dict], agency: dict, c
     repl["BR:10/2026"] = "BR: ___/2026"
     
     # ========== BLANK PLACEHOLDERS (underscore lines) ==========
-    # Različite varijante "NAZIV FIRME:_________"
-    if company_naziv:
+    # NAPOMENA: Ovi generički blank-line replacements se NE primenjuju na šablone
+    # koji koriste eksplicitne (NAZIV_FIRME) placeholdere (npr. Zahtjev za uzorkovanje)
+    # — jer bi short-key replacement pokrio dio long-underscore linije i ostavio remnant.
+    _tn_lower_pre = (template_filename or "").lower()
+    skip_legacy_blanks = "uzorkovanje" in _tn_lower_pre
+    
+    if company_naziv and not skip_legacy_blanks:
         for blank_naziv in [
             "NAZIV FIRME:____________________________",
             "NAZIV FIRME: ____________________________",
@@ -1207,7 +1212,7 @@ def _build_replacements(company: dict, employee: Optional[dict], agency: dict, c
         ]:
             repl[blank_naziv] = f"NAZIV FIRME: {company_naziv}"
     
-    if company_pib:
+    if company_pib and not skip_legacy_blanks:
         for blank_pib in [
             "PIB: _______________________",
             "PIB:_______________________",
@@ -1215,7 +1220,7 @@ def _build_replacements(company: dict, employee: Optional[dict], agency: dict, c
         ]:
             repl[blank_pib] = f"PIB: {company_pib}"
     
-    if company_adresa:
+    if company_adresa and not skip_legacy_blanks:
         full_adr = f"{company_adresa}, {company_grad}" if company_adresa and company_grad else (company_adresa or company_grad)
         for blank_adr in [
             "Adresa: _____________________",
@@ -1396,86 +1401,40 @@ def _build_replacements(company: dict, employee: Optional[dict], agency: dict, c
             repl["1.8.Telefon - i, fax - i, e-mail ______________________________________________________________"] = \
                 f"1.8.Telefon - i, fax - i, e-mail  {company_tel_val}"
     
-    # "Zahtjev za uzorkovanje i ispitivanje" (BRISEVA / HRANA / VODA ZA PICE)
-    # Brišemo dummy podatke (npr. "DOO FRIENDS CAFFE", "VLADIMIR BB", brojevi)
-    # i popunjavamo blank-line polja podacima izabrane firme.
+    # "Zahtjev za uzorkovanje i ispitivanje" (BRISEVA / HRANA / VODA ZA PIĆE) – novi šabloni sa eksplicitnim
+    # placeholderima u zagradama (NAZIV_FIRME), (PIB_FIRME), (ADRESA_FIRME), itd.
     if "uzorkovanje" in tname_lower:
         company_tel_val2 = company.get("telefon") or agency.get("telefon", "")
-        company_pdv_val = company.get("pdv_broj", "")
-        adresa_full = f"{company_adresa}, {company_grad}".strip(", ") if (company_adresa or company_grad) else ""
+        company_pdv_val = company.get("pdv_broj", "") or "____________"
+        company_email_val = company.get("email") or agency.get("email", "") or "____________"
+        company_sd_val = company.get("sifra_djelatnosti", "") or "____________"
+        adresa_full = f"{company_adresa}, {company_grad}".strip(", ") if (company_adresa or company_grad) else "____________"
+        naziv_objekta_val = company.get("naziv_skraceni") or company_naziv or "____________"
         
-        # === BRISEVA exact paragraph blocks ===
-        if company_naziv:
-            repl["Podaci o objektu (navesti tačan naziv i adresu)________________________________________ DOO FRIENDS CAFFE ULCINJ"] = \
-                f"Podaci o objektu: {company_naziv}, {adresa_full}".rstrip(", ")
-            repl["Podaci o objektu (navesti tačan naziv i adresu)________________________________________"] = \
-                f"Podaci o objektu: {company_naziv}, {adresa_full}".rstrip(", ")
-        # Standalone sample value paragrafi (briše ih ili zamjenjuje company name)
+        # Glavni placeholder mappings (case-sensitive, zagrade)
+        repl["(NAZIV_FIRME)"] = company_naziv or "____________"
+        repl["NAZIV_FIRME"] = company_naziv or "____________"  # bez zagrada (HRANA P8)
+        repl["(ADRESA_FIRME)"] = adresa_full
+        repl["(ADRESA FIRME)"] = adresa_full  # sa space-om (HRANA)
+        repl["(PIB_FIRME)"] = company_pib or "____________"
+        repl["(PDV_BROJ)"] = company_pdv_val
+        repl["(BROJ_TELEFONA)"] = company_tel_val2 or "____________"
+        repl["(IME_PREZIME_DIREKTORA)"] = direktor_ime if direktor_ime != "________________" else "____________"
+        repl["(ime_prezime_direktora)"] = direktor_ime if direktor_ime != "________________" else "____________"
+        repl["(DATUM_STAMPE)"] = today_str
+        repl["(NAZIV_OBJEKTA)"] = naziv_objekta_val
+        repl["(SIFRA_DJELATNOSTI)"] = company_sd_val
+        repl["(email_adresa_firme)"] = company_email_val
+        repl["(EMAIL_ADRESA_FIRME)"] = company_email_val
+        repl["(ULCINJ)"] = company_grad or "Ulcinj"  # mjesto podnošenja
+        
+        # Čišćenje leftover hardcoded podataka iz originalnih PDF-ova:
         repl["DOO FRIENDS CAFFE ULCINJ "] = ""
-        repl["FRIENDS CAFFE ULCINJ "] = ""
-        # "VLADIMIR BB \nAdresa: ____" - bilo standalone bilo s tabom
-        if adresa_full:
-            repl["\tVLADIMIR BB \nAdresa: _______________________________________________________________________ "] = \
-                f"Adresa: {adresa_full}"
-            repl["VLADIMIR BB \nAdresa: _______________________________________________________________________"] = \
-                f"Adresa: {adresa_full}"
-            repl["Adresa: _______________________________________________________________________"] = \
-                f"Adresa: {adresa_full}"
-        # PIB blok
-        if company_pib:
-            repl["\t03314367 \nPIB: _______________________________________ "] = f"PIB: {company_pib}"
-            repl["03314367 \nPIB: _______________________________________"] = f"PIB: {company_pib}"
-            repl["PIB: _______________________________________"] = f"PIB: {company_pib}"
-        # PDV (BRISEVA)
-        if company_pdv_val:
-            repl["\t82/31-02356-8 \nPDV: ______________________________________ "] = f"PDV: {company_pdv_val}"
-            repl["82/31-02356-8 \nPDV: ______________________________________"] = f"PDV: {company_pdv_val}"
-            repl["PDV: ______________________________________"] = f"PDV: {company_pdv_val}"
-        else:
-            repl["\t82/31-02356-8 \nPDV: ______________________________________ "] = "PDV: ____________"
-            repl["82/31-02356-8 \nPDV: ______________________________________"] = "PDV: ____________"
-        # Telefon (BRISEVA)
-        if company_tel_val2:
-            repl["Kontakt tel/FAX:_______________________________________________________________ 069688102"] = \
-                f"Kontakt tel/FAX: {company_tel_val2}"
-            repl["Kontakt tel/FAX:_______________________________________________________________"] = \
-                f"Kontakt tel/FAX: {company_tel_val2}"
-        
-        # === HRANA exact paragraph blocks ===
-        if company_naziv and adresa_full:
-            repl["Podaci o objektu (navesti tačan naziv i adresu)________________________________________ "] = \
-                f"Podaci o objektu: {company_naziv}, {adresa_full}"
-        # Standalone sample CULT lines
-        repl['DRUŠTVO SA OGRANIČENOM ODGOVORNOŠĆU "CULT ULCINJ" ZA TRGOVINU, UGOSTITELJSTVO I _____________________________________________________________________________'] = ""
-        repl['USLUGE "EXPORT-IMPORT" ULCINJ'] = ""
+        repl["DOO FRIENDS CAFFE ULCINJ"] = ""
+        # HRANA P2 - "Podaci o objektu" placeholder je izgubljen pri konverziji
         if company_naziv:
-            repl["_____________________________________________________________________________ DOO CULT ULCINJ"] = \
-                f"Naziv: {company_naziv}"
-        if adresa_full:
-            repl["Adresa: _______________________________________________________________________ UL.VELLEZERIT FRASHERI BB ULCINJ"] = \
-                f"Adresa: {adresa_full}"
-        if company_pib:
-            repl["PIB: _______________________________________ 03801969"] = f"PIB: {company_pib}"
-        # PDV+Telefon kombinovani blok (HRANA)
-        pdv_str = company_pdv_val if company_pdv_val else "____________"
-        tel_str = company_tel_val2 if company_tel_val2 else "____________"
-        repl["\t82/31-03288-7 \nPDV: ______________________________________ \n\t069628880 \nKontakt tel:_______________________________________________________________ "] = \
-            f"PDV: {pdv_str}\nKontakt tel: {tel_str}"
-        repl["82/31-03288-7 \nPDV: ______________________________________ \n\t069628880 \nKontakt tel:_______________________________________________________________"] = \
-            f"PDV: {pdv_str}\nKontakt tel: {tel_str}"
-        repl["Kontakt tel:_______________________________________________________________"] = \
-            f"Kontakt tel: {tel_str}"
-        
-        # === VODA ZA PICE - dummy podaci (uglavnom u tabelama, već pokriveni kroz SAMPLE) ===
-        repl["LOUNGE BAR CULT"] = company.get("naziv_skraceni") or company_naziv or "____________"
-        # Multi-line CULT naziv u VODA tabelama (newline između linija)
-        if company_naziv:
-            repl['DRUŠTVO SA OGRANIČENOM ODGOVORNOŠĆU "CULT ULCINJ" ZA TRGOVINU, \nUGOSTITELJSTVO I USLUGE "EXPORT-IMPORT" ULCINJ'] = company_naziv
-            repl['DRUŠTVO SA OGRANIČENOM ODGOVORNOŠĆU "CULT ULCINJ" ZA TRGOVINU,\nUGOSTITELJSTVO I USLUGE "EXPORT-IMPORT" ULCINJ'] = company_naziv
-            # VODA pat — paragraf 1 i paragraf 2 odvojeno (u istoj ćeliji)
-            repl['\tDRUŠTVO SA OGRANIČENOM ODGOVORNOŠĆU "CULT ULCINJ" ZA TRGOVINU, '] = f"\t{company_naziv}"
-            repl['DRUŠTVO SA OGRANIČENOM ODGOVORNOŠĆU "CULT ULCINJ" ZA TRGOVINU,'] = company_naziv
-            repl['UGOSTITELJSTVO I USLUGE "EXPORT-IMPORT" ULCINJ'] = ""
+            repl["Podaci o objektu (navesti tačan naziv i adresu)________________________________________ _____________________________________________________________________________"] = \
+                f"Podaci o objektu: {company_naziv}, {adresa_full}".rstrip(", ")
     
     return repl
 
