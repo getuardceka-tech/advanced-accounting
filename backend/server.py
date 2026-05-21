@@ -721,15 +721,28 @@ SAMPLE_EMPLOYEE_NAMES = [
     "ALEKSANDER CUROVIĆ", "ALEKSANDER CUROVIC",
     "RENATO JAKU",
     "ZIJA DODIĆ", "ZIJA DODIC",
+    "ALBERT OSMANOVIC", "ALBERT OSMANOVIĆ",
 ]
-SAMPLE_EMPLOYEE_JMBGS = ["1411008223029", "039066621", "3004974220012"]
+SAMPLE_EMPLOYEE_JMBGS = [
+    "1411008223029", "039066621", "3004974220012",
+    "0612986223008",
+]
+SAMPLE_EMPLOYEE_LK = ["I3382349M"]  # broj lične karte
 SAMPLE_EMPLOYEE_POSITIONS = [
-    "KONOBAR",
-    "KUVAR",
+    "KONOBAR", "Konobar", "konobar",
+    "KUVAR", "Kuvar", "kuvar",
     "pomoćni radnik u gradjevinu",
     "pomocni radnik u gradjevinu",
     "NK – nekvalifikovani radnik",
     "NK - nekvalifikovani radnik",
+]
+
+# Sample datumi početka rada koji se zamjenjuju sa emp.datum_pocetka
+# (datum zasnivanja radnog odnosa, datum stupanja na rad, datum zaključenja ugovora)
+SAMPLE_EMPLOYEE_START_DATES = [
+    "09.02.2026",  # u UGOVOR O RADU Zaposlenih.docx
+    "19.11.2025",  # u UGOVOR O RADU DIREKTOR.docx
+    "01.02.2026",  # u UGOVOR O DOPUNSKOM RADU.docx (3x)
 ]
 
 # Specifični datumi/periodi/dani koji se BRIŠU iz dokumenata
@@ -846,6 +859,27 @@ def _build_replacements(company: dict, employee: Optional[dict], agency: dict, c
                 # Don't replace DIREKTOR with employee position (DIREKTOR refers to company director)
                 if sample_pos.upper() != "DIREKTOR":
                     repl[sample_pos] = emp_pozicija
+        # Broj lične karte zaposlenog
+        emp_lk = employee.get("licna_karta", "")
+        if emp_lk:
+            for sample_lk in SAMPLE_EMPLOYEE_LK:
+                repl[sample_lk] = emp_lk
+        # Datum zasnivanja radnog odnosa / stupanja na rad / zaključenja ugovora
+        # → uzima se iz emp.datum_pocetka (kad je upisan u formi)
+        emp_start = employee.get("datum_pocetka", "")
+        if emp_start:
+            # Konvertuj YYYY-MM-DD → DD.MM.YYYY
+            formatted_start = emp_start
+            try:
+                dt = datetime.fromisoformat(emp_start.replace('Z', ''))
+                formatted_start = dt.strftime("%d.%m.%Y")
+            except Exception:
+                pass
+            for sample_date in SAMPLE_EMPLOYEE_START_DATES:
+                repl[sample_date] = formatted_start
+        # End-of-contract period blank (za određeno vrijeme - klijent ručno)
+        repl["-31.12.2026 godine"] = "- ____________ godine"
+        repl["važi do 31.12.2026"] = "važi do ____________"
     
     # Brisanje specifičnih datuma/periode/dana - klijent ručno popuni
     for sample_period, blank in SAMPLE_PERIODS_TO_BLANK.items():
