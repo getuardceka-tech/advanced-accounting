@@ -7,6 +7,8 @@ import {
   Receipt,
   Plus,
   TrendUp,
+  WarningCircle,
+  Clock,
 } from "@phosphor-icons/react";
 import api from "@/lib/api";
 
@@ -20,12 +22,14 @@ export default function Dashboard() {
   const [stats, setStats] = useState(null);
   const [companies, setCompanies] = useState([]);
   const [docs, setDocs] = useState([]);
+  const [expiring, setExpiring] = useState([]);
 
   useEffect(() => {
     Promise.all([
       api.get("/stats").then((r) => setStats(r.data)),
       api.get("/companies").then((r) => setCompanies(r.data.slice(0, 5))),
       api.get("/documents").then((r) => setDocs(r.data.slice(0, 5))),
+      api.get("/reminders/expiring-contracts?days=30").then((r) => setExpiring(r.data)),
     ]).catch(() => {});
   }, []);
 
@@ -99,6 +103,77 @@ export default function Dashboard() {
 
       {/* Two column section */}
       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16 }}>
+        {/* Podsjetnici - ugovori koji ističu */}
+        {expiring.length > 0 && (
+          <div className="card card-padded" style={{ gridColumn: "1 / -1", borderLeft: "3px solid #d97706" }} data-testid="expiring-contracts-widget">
+            <SectionHeader
+              title={
+                <span style={{ display: "inline-flex", alignItems: "center", gap: 8 }}>
+                  <WarningCircle size={18} color="#d97706" weight="fill" />
+                  Ugovori koji ističu u narednih 30 dana
+                </span>
+              }
+              action={
+                <span className="badge badge-warning">{expiring.length} {expiring.length === 1 ? "ugovor" : "ugovora"}</span>
+              }
+            />
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(280px, 1fr))", gap: 10 }}>
+              {expiring.slice(0, 6).map((e) => {
+                const isExpired = e.days_left < 0;
+                const isUrgent = e.days_left <= 7;
+                return (
+                  <div
+                    key={e.id}
+                    onClick={() => navigate(`/firme/${e.company_id}`)}
+                    style={{
+                      padding: 12,
+                      background: isExpired ? "#fef2f2" : (isUrgent ? "#fefce8" : "#f8fafc"),
+                      border: `1px solid ${isExpired ? "#fecaca" : (isUrgent ? "#fde68a" : "var(--border)")}`,
+                      borderRadius: 8,
+                      cursor: "pointer",
+                      display: "flex",
+                      gap: 12,
+                      alignItems: "center",
+                    }}
+                  >
+                    <div style={{
+                      width: 38, height: 38, borderRadius: 8,
+                      background: isExpired ? "#fecaca" : (isUrgent ? "#fde68a" : "#e2e8f0"),
+                      color: isExpired ? "#b91c1c" : (isUrgent ? "#a16207" : "#475569"),
+                      display: "flex", alignItems: "center", justifyContent: "center",
+                      flexShrink: 0,
+                    }}>
+                      <Clock size={18} weight="bold" />
+                    </div>
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <div style={{ fontWeight: 600, fontSize: 13.5, color: "var(--text-primary)" }}>
+                        {e.ime} {e.prezime}
+                      </div>
+                      <div style={{ fontSize: 11.5, color: "var(--text-tertiary)", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
+                        {e.company_naziv} · {e.pozicija || "—"}
+                      </div>
+                      <div style={{ fontSize: 11.5, marginTop: 4, fontWeight: 500, color: isExpired ? "#b91c1c" : (isUrgent ? "#a16207" : "var(--text-secondary)") }}>
+                        {isExpired
+                          ? `⚠ Istekao prije ${Math.abs(e.days_left)} ${Math.abs(e.days_left) === 1 ? "dan" : "dana"}`
+                          : e.days_left === 0
+                          ? "⚠ Ističe DANAS"
+                          : `Ističe za ${e.days_left} ${e.days_left === 1 ? "dan" : "dana"}`} · {e.end_date_formatted}
+                      </div>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+            {expiring.length > 6 && (
+              <div style={{ marginTop: 12, textAlign: "center" }}>
+                <button className="btn btn-ghost btn-sm" onClick={() => navigate("/fizicka-lica")}>
+                  Vidi sve ({expiring.length}) →
+                </button>
+              </div>
+            )}
+          </div>
+        )}
+
         <div className="card card-padded">
           <SectionHeader
             title="Posljednje firme"

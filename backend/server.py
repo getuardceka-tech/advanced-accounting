@@ -242,6 +242,50 @@ async def get_current_user(credentials: HTTPAuthorizationCredentials = Depends(s
         raise HTTPException(401, "Neispravan token")
 
 
+# ============== REMINDERS / PODSJETNICI ==============
+
+@api_router.get("/reminders/expiring-contracts")
+async def expiring_contracts(days: int = 30, username: str = Depends(get_current_user)):
+    """Vraća sve zaposlene sa određenim ugovorom čiji datum_kraja ističe u narednih N dana."""
+    today = datetime.now(timezone.utc).date()
+    limit_date = today + timedelta(days=days)
+    
+    employees = await db.employees.find(
+        {"vrsta_ugovora": "odredjeno", "datum_kraja": {"$ne": "", "$exists": True}, "aktivan": True},
+        {"_id": 0}
+    ).to_list(2000)
+    
+    expiring = []
+    for emp in employees:
+        try:
+            end_str = emp.get("datum_kraja", "")
+            if not end_str:
+                continue
+            end_dt = datetime.fromisoformat(end_str.replace('Z', '')).date()
+            days_left = (end_dt - today).days
+            if -7 <= days_left <= days:  # od 7 dana isteklog do N dana u budućnosti
+                emp_copy = dict(emp)
+                emp_copy["days_left"] = days_left
+                emp_copy["end_date_formatted"] = end_dt.strftime("%d.%m.%Y")
+                expiring.append(emp_copy)
+        except Exception:
+            continue
+    
+    # Enrich sa nazivima firmi
+    company_ids = list(set(e.get("company_id") for e in expiring if e.get("company_id")))
+    if company_ids:
+        companies = await db.companies.find({"id": {"$in": company_ids}}, {"_id": 0}).to_list(1000)
+        cmap = {c["id"]: c for c in companies}
+        for e in expiring:
+            c = cmap.get(e.get("company_id"))
+            e["company_naziv"] = c.get("naziv", "—") if c else "—"
+            e["company_pib"] = c.get("pib", "") if c else ""
+    
+    # Sort by days_left ascending (most urgent first)
+    expiring.sort(key=lambda e: e.get("days_left", 999))
+    return expiring
+
+
 # ============== STARTUP - SEED USER + AGENCY ==============
 
 @app.on_event("startup")
@@ -917,6 +961,17 @@ def _build_replacements(company: dict, employee: Optional[dict], agency: dict, c
         else:
             repl["-31.12.2026 godine"] = "- ____________ godine"
             repl["važi do 31.12.2026"] = "važi do ____________"
+        
+        # Plata zaposlenog → uzima se iz forme (emp.plata_neto)
+        emp_plata_neto = employee.get("plata_neto") or 0
+        if emp_plata_neto > 0:
+            plata_str = f"{float(emp_plata_neto):.2f}"
+            # UGOVOR O RADU Zaposlenih/Direktor: "neto iznosu od 600.00 euro"
+            repl["neto iznosu od 600.00 euro"] = f"neto iznosu od {plata_str} euro"
+            repl["600.00 euro"] = f"{plata_str} euro"
+            # UGOVOR O DOPUNSKOM RADU: "iznos od 300.00 eura"
+            repl["iznos od 300.00 eura"] = f"iznos od {plata_str} eura"
+            repl["300.00 eura"] = f"{plata_str} eura"
     
     # Brisanje specifičnih datuma/periode/dana - klijent ručno popuni
     for sample_period, blank in SAMPLE_PERIODS_TO_BLANK.items():
