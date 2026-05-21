@@ -219,17 +219,21 @@ class PDVRecord(BaseModel):
     pdv_predato: bool = False
     pdv_datum: str = ""
     pdv_broj: str = ""
+    pdv_status: str = "ceka"  # "ceka" | "u_toku" | "predato"
     ioppd_predato: bool = False
     ioppd_datum: str = ""
     ioppd_broj: str = ""
+    ioppd_status: str = "ceka"
 
 class PDVUpdate(BaseModel):
     pdv_predato: Optional[bool] = None
     pdv_datum: Optional[str] = None
     pdv_broj: Optional[str] = None
+    pdv_status: Optional[str] = None
     ioppd_predato: Optional[bool] = None
     ioppd_datum: Optional[str] = None
     ioppd_broj: Optional[str] = None
+    ioppd_status: Optional[str] = None
 
 
 # ============== AUTH HELPERS ==============
@@ -1910,6 +1914,9 @@ async def get_pdv_tracking(year: int, month: int, username: str = Depends(get_cu
     result = []
     for c in companies:
         rec = records_map.get(c["id"], {})
+        # Derive status — ako je predato=True, status="predato" (backward compat)
+        pdv_status = rec.get("pdv_status") or ("predato" if rec.get("pdv_predato") else "ceka")
+        ioppd_status = rec.get("ioppd_status") or ("predato" if rec.get("ioppd_predato") else "ceka")
         result.append({
             "company_id": c["id"],
             "company_naziv": c["naziv"],
@@ -1919,9 +1926,11 @@ async def get_pdv_tracking(year: int, month: int, username: str = Depends(get_cu
             "pdv_predato": rec.get("pdv_predato", False),
             "pdv_datum": rec.get("pdv_datum", ""),
             "pdv_broj": rec.get("pdv_broj", ""),
+            "pdv_status": pdv_status,
             "ioppd_predato": rec.get("ioppd_predato", False),
             "ioppd_datum": rec.get("ioppd_datum", ""),
             "ioppd_broj": rec.get("ioppd_broj", ""),
+            "ioppd_status": ioppd_status,
         })
     return result
 
@@ -1947,6 +1956,23 @@ async def update_pdv_tracking(
     if update_dict.get("ioppd_predato") is True and not update_dict.get("ioppd_datum"):
         if not existing or not existing.get("ioppd_datum"):
             update_dict["ioppd_datum"] = today
+    
+    # Sinhronizacija status ↔ predato
+    if "pdv_status" in update_dict:
+        update_dict["pdv_predato"] = (update_dict["pdv_status"] == "predato")
+        if update_dict["pdv_predato"] and not update_dict.get("pdv_datum"):
+            if not existing or not existing.get("pdv_datum"):
+                update_dict["pdv_datum"] = today
+    elif "pdv_predato" in update_dict:
+        update_dict["pdv_status"] = "predato" if update_dict["pdv_predato"] else "ceka"
+    
+    if "ioppd_status" in update_dict:
+        update_dict["ioppd_predato"] = (update_dict["ioppd_status"] == "predato")
+        if update_dict["ioppd_predato"] and not update_dict.get("ioppd_datum"):
+            if not existing or not existing.get("ioppd_datum"):
+                update_dict["ioppd_datum"] = today
+    elif "ioppd_predato" in update_dict:
+        update_dict["ioppd_status"] = "predato" if update_dict["ioppd_predato"] else "ceka"
     
     if existing:
         await db.pdv_records.update_one(

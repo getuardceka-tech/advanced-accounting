@@ -1,10 +1,16 @@
 import { useEffect, useState } from "react";
-import { CalendarBlank, Check, Printer, FileXls } from "@phosphor-icons/react";
+import { CalendarBlank, Check, Printer } from "@phosphor-icons/react";
 import api from "@/lib/api";
 
 const months = [
   "Januar", "Februar", "Mart", "April", "Maj", "Jun",
   "Jul", "Avgust", "Septembar", "Oktobar", "Novembar", "Decembar",
+];
+
+const STATUS_OPTIONS = [
+  { v: "ceka", label: "Čeka", color: "#9ca3af", bg: "#f3f4f6" },
+  { v: "u_toku", label: "U toku", color: "#92400e", bg: "#fef3c7" },
+  { v: "predato", label: "Predato", color: "#065f46", bg: "#d1fae5" },
 ];
 
 export default function PdvTracking() {
@@ -48,8 +54,10 @@ export default function PdvTracking() {
   const pdvRows = data.filter((r) => r.pdv_obveznik);
   const ioppdRows = data.filter((r) => r.ioppd_obveznik);
 
-  const pdvDone = pdvRows.filter((r) => r.pdv_predato).length;
-  const ioppdDone = ioppdRows.filter((r) => r.ioppd_predato).length;
+  const pdvDone = pdvRows.filter((r) => r.pdv_status === "predato").length;
+  const pdvInProgress = pdvRows.filter((r) => r.pdv_status === "u_toku").length;
+  const ioppdDone = ioppdRows.filter((r) => r.ioppd_status === "predato").length;
+  const ioppdInProgress = ioppdRows.filter((r) => r.ioppd_status === "u_toku").length;
 
   const printList = (type) => {
     window.print();
@@ -110,10 +118,14 @@ export default function PdvTracking() {
 
         <div style={{ display: "flex", gap: 14, fontSize: 12.5, color: "var(--text-secondary)" }}>
           <div>
-            <span style={{ fontWeight: 600, color: "var(--text-primary)" }}>PDV:</span> {pdvDone}/{pdvRows.length} predato
+            <span style={{ fontWeight: 600, color: "var(--text-primary)" }}>PDV:</span>{" "}
+            <span style={{ color: "#065f46", fontWeight: 600 }}>{pdvDone}</span>/{pdvRows.length} predato
+            {pdvInProgress > 0 && <span style={{ color: "#92400e" }}> · {pdvInProgress} u toku</span>}
           </div>
           <div>
-            <span style={{ fontWeight: 600, color: "var(--text-primary)" }}>IOPPD:</span> {ioppdDone}/{ioppdRows.length} predato
+            <span style={{ fontWeight: 600, color: "var(--text-primary)" }}>IOPPD:</span>{" "}
+            <span style={{ color: "#065f46", fontWeight: 600 }}>{ioppdDone}</span>/{ioppdRows.length} predato
+            {ioppdInProgress > 0 && <span style={{ color: "#92400e" }}> · {ioppdInProgress} u toku</span>}
           </div>
         </div>
       </div>
@@ -136,14 +148,14 @@ export default function PdvTracking() {
                 <th>PIB</th>
                 {(view === "both" || view === "pdv") && (
                   <>
-                    <th>PDV</th>
+                    <th>PDV status</th>
                     <th>Datum PDV</th>
                     <th>Br. PDV</th>
                   </>
                 )}
                 {(view === "both" || view === "ioppd") && (
                   <>
-                    <th>IOPPD</th>
+                    <th>IOPPD status</th>
                     <th>Datum IOPPD</th>
                     <th>Br. IOPPD</th>
                   </>
@@ -163,10 +175,10 @@ export default function PdvTracking() {
                       <>
                         <td>
                           {row.pdv_obveznik ? (
-                            <Checkbox
-                              checked={row.pdv_predato}
-                              onChange={() => toggleStatus(row, "pdv_predato")}
-                              testid={`pdv-check-${idx}`}
+                            <StatusSelect
+                              value={row.pdv_status || "ceka"}
+                              onChange={(v) => updateField(row, "pdv_status", v)}
+                              testid={`pdv-status-${idx}`}
                             />
                           ) : <span style={{ color: "var(--text-tertiary)" }}>—</span>}
                         </td>
@@ -200,10 +212,10 @@ export default function PdvTracking() {
                       <>
                         <td>
                           {row.ioppd_obveznik ? (
-                            <Checkbox
-                              checked={row.ioppd_predato}
-                              onChange={() => toggleStatus(row, "ioppd_predato")}
-                              testid={`ioppd-check-${idx}`}
+                            <StatusSelect
+                              value={row.ioppd_status || "ceka"}
+                              onChange={(v) => updateField(row, "ioppd_status", v)}
+                              testid={`ioppd-status-${idx}`}
                             />
                           ) : <span style={{ color: "var(--text-tertiary)" }}>—</span>}
                         </td>
@@ -253,3 +265,34 @@ const Checkbox = ({ checked, onChange, testid }) => (
     {checked && <Check size={11} weight="bold" />}
   </button>
 );
+
+const StatusSelect = ({ value, onChange, testid }) => {
+  const opt = STATUS_OPTIONS.find((o) => o.v === value) || STATUS_OPTIONS[0];
+  return (
+    <select
+      value={value || "ceka"}
+      onChange={(e) => onChange(e.target.value)}
+      data-testid={testid}
+      style={{
+        padding: "4px 8px",
+        fontSize: 12,
+        fontWeight: 600,
+        border: `1px solid ${opt.color}`,
+        borderRadius: 6,
+        background: opt.bg,
+        color: opt.color,
+        cursor: "pointer",
+        outline: "none",
+        appearance: "none",
+        paddingRight: 18,
+        backgroundImage: `url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='10' height='10' viewBox='0 0 10 10'><path d='M2 4l3 3 3-3' fill='none' stroke='${encodeURIComponent(opt.color)}' stroke-width='1.5'/></svg>")`,
+        backgroundRepeat: "no-repeat",
+        backgroundPosition: "right 4px center",
+      }}
+    >
+      {STATUS_OPTIONS.map((o) => (
+        <option key={o.v} value={o.v}>{o.label}</option>
+      ))}
+    </select>
+  );
+};

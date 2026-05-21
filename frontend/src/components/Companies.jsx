@@ -503,10 +503,11 @@ function CompanyModal({ form, setForm, editing, onSave, onClose, saving, error, 
               </div>
               <div style={{ display: "flex", gap: 20, flexWrap: "wrap" }}>
                 <Toggle label="PDV obveznik" checked={form.pdv_obveznik} onChange={(v) => u("pdv_obveznik", v)} testid="form-pdv-obveznik" />
+                <Toggle label="IOPPD obveznik" checked={form.ioppd_obveznik} onChange={(v) => u("ioppd_obveznik", v)} testid="form-ioppd-obveznik" />
                 <Toggle label="Aktivna firma" checked={form.aktivna} onChange={(v) => u("aktivna", v)} testid="form-aktivna" />
               </div>
               <div style={{ fontSize: 11.5, color: "var(--text-tertiary)", marginTop: 8, fontStyle: "italic" }}>
-                IOPPD: automatski uključuje sve firme osim preduzetnika bez zaposlenih.
+                Označite "IOPPD obveznik" ako za ovu firmu predajete IOPPD prijave (zaposleni, izvođači, itd.).
               </div>
             </div>
 
