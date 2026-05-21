@@ -703,6 +703,8 @@ SAMPLE_COMPANY_NAMES = [
     # Različite varijante kako se firma "CULT ULCINJ" pojavljuje u šablonima
     'DRUŠTVO SA OGRANIČENOM ODGOVORNOŠĆU "CULT ULCINJ" ZA TRGOVINU, UGOSTITELJSTVO I USLUGE EXPORT-IMPORT- ULCINJ',
     'DRUŠTVO SA OGRANIČENOM ODGOVORNOŠĆU "CULT ULCINJ" ZA TRGOVINU, UGOSTITELJSTVO I USLUGE "EXPORT-IMPORT" ULCINJ',
+    'DOO "CULT ULCINJ"-ULCINJ',
+    "DOO CULT ULCINJ-ULCINJ",
     "DOO CULT ULCINJ",
     "CULT ULCINJ",
     # MARINI GROUP
@@ -712,6 +714,7 @@ SAMPLE_COMPANY_NAMES = [
     'DRUŠTVO SA OGRANIČENOM ODGOVORNOŠĆU "SUMA FRESH MARKET" - ULCINJ',
     'DRUŠTVO SA OGRANIČENOM ODGOVORNOŠĆU  "SUMA FRESH MARKET" ULCINJ',
     'DRUŠTVO SA OGRANIČENOM ODGOVORNOŠĆU "SUMA FRESH MARKET" ULCINJ',
+    'DRUŠTVO SA OGRANIČENOM ODGOVORNOŠĆU "SUMA FRESH MARKET" -ULCINJ',
     "SUMA FRESH MARKET",
     # GONI COMPANY
     'DOO "GONI COMPANY" ZA PROIZVODNJU, PROMET I USLUGE, EXPORT - IMPORT ULCINJ',
@@ -722,10 +725,27 @@ SAMPLE_COMPANY_NAMES = [
     # DARTI
     '"DARTI" D.O.O. ULCINJ',
     "DARTI",
+    # FRIENDS CAFFE
+    "DOO FRIENDS CAFFE ULCINJ",
+    "FRIENDS CAFFE",
+    # ELA&ART (OP OBRAZAC) - even though OP OBRAZAC is image-only, mapping is here for safety
+    'DRUŠTVO SA OGRANIČENOM ODGOVORNOŠĆU ZA PROIZVODNJU, PROMET I USLUGE " ELA&ART " ULCINJ',
+    'DRUŠTVO SA OGRANIČENOM ODGOVORNOŠĆU ZA PROIZVODNJU,',
+    'PROMET I USLUGE " ELA&ART " ULCINJ',
+    "ELA&ART",
 ]
 
 # Sample PIBs koje treba zamijeniti (sa izabranom firmom)
-SAMPLE_PIBS = ["03801969", "03796841", "03807851", "03663108", "1906972223002"]
+SAMPLE_PIBS = ["03801969", "03796841", "03807851", "03663108", "03314367", "1906972223002"]
+
+# Sample PDV brojevi
+SAMPLE_PDV_NUMBERS = ["82/31-02356-8", "82/31-03288-7"]
+
+# Sample telefoni
+SAMPLE_PHONES = ["069832886", "069688102", "069628880"]
+
+# Sample šifre djelatnosti
+SAMPLE_DJELATNOST_CODES = ["4334", "5610", "4711"]
 
 # Sample direktori (zamjenjuju se sa company.direktor_ime)
 SAMPLE_DIRECTORS = [
@@ -748,15 +768,19 @@ SAMPLE_DIRECTOR_JMBGS = [
 SAMPLE_COMPANY_ADDRESSES = [
     "Ulcinj, Ul.Vellezerit Frasheri bb.",
     "UL.VELLEZERIT FRASHERI BB ULCINJ",
+    "UL.VLLEZERIT FRASHERI BB ULCINJ",
+    "UL.VELLEZERIT FRASHERI BB",
     "VELLEZERIT FRASHERI BB",
     "VELIKA PLAZA BB - ULCINJ",
+    "VLADIMIR BB. ULCINJ 85366",
     "VLADIMIR BB",
     "VLADIMIR   bb",
     "VLADIMIR BB ULCINJ",
+    "DJERANE BB",
 ]
 
 # Sample matični/registracijski brojevi
-SAMPLE_REG_NUMBERS = ["5-1354657/001"]
+SAMPLE_REG_NUMBERS = ["5-1354657/001", "5-1344978"]
 
 # Sample agency data (UVIJEK se zamjenjuju agencijskim podacima iz postavki)
 # Agencija u šablonima može biti "Getuard Cekoviq" ili "Advanced Accounting" (D.O.O.)
@@ -826,9 +850,10 @@ SAMPLE_PERIODS_TO_BLANK = {
 }
 
 
-def _build_replacements(company: dict, employee: Optional[dict], agency: dict, custom: dict) -> Dict[str, str]:
+def _build_replacements(company: dict, employee: Optional[dict], agency: dict, custom: dict, template_filename: str = "") -> Dict[str, str]:
     """Gradi dictionary svih mogućih placeholdera za zamjenu."""
     today = datetime.now(timezone.utc)
+    today_str = today.strftime("%d.%m.%Y")
     
     company_naziv = company.get("naziv", "")
     company_pib = company.get("pib", "")
@@ -871,6 +896,18 @@ def _build_replacements(company: dict, employee: Optional[dict], agency: dict, c
         if direktor_ime and direktor_ime != "________________":
             repl[sample_dir] = direktor_ime
     
+    # Razdvojeno ime/prezime direktora za templote koji ih traže odvojeno
+    # (npr. Zahtjev iz kaznene evidencije fizičko lice)
+    if direktor_ime and direktor_ime != "________________":
+        parts = direktor_ime.strip().split(maxsplit=1)
+        dir_first = parts[0] if parts else ""
+        dir_last = parts[1] if len(parts) > 1 else ""
+        if dir_first and dir_last:
+            # "VESEL" (ime) i "SUMA" (prezime) standalone → koristi pravo ime/prezime
+            # Pazi: SAMPLE_DIRECTORS sortira po dužini desc, "VESEL SUMA" se zamjenjuje PRIJE "VESEL"
+            repl["VESEL"] = dir_first
+            repl["SUMA"] = dir_last
+    
     # Sample director JMBGs → real
     for sample_jmbg in SAMPLE_DIRECTOR_JMBGS:
         if direktor_jmbg and direktor_jmbg != "________________":
@@ -887,28 +924,65 @@ def _build_replacements(company: dict, employee: Optional[dict], agency: dict, c
             repl[sample_reg] = company["maticni_broj"]
     # Datum rješenja CRPS - ako firma ima, koristi, inače blank
     repl["17.12.2025"] = company.get("datum_registracije") or "____________"
+    # Datum CRPS rješenja iz Prijave zanatstva: "5-1344978  23.10.2025"
+    repl["23.10.2025"] = company.get("datum_registracije") or "____________"
     
-    # Šifra djelatnosti - sample "4711" iz Prijave trgovine
+    # Šifra djelatnosti - sample "4711" iz Prijave trgovine + "4334", "5610" iz drugih
     if company.get("sifra_djelatnosti"):
-        repl["4711"] = company["sifra_djelatnosti"]
+        for sd_sample in SAMPLE_DJELATNOST_CODES:
+            repl[sd_sample] = company["sifra_djelatnosti"]
     
-    # Žiro račun - sample iz Prijave trgovine
+    # Naziv djelatnosti
+    if company.get("djelatnost"):
+        repl["Bojenje i zastakljivanje"] = company["djelatnost"]
+        repl["Trgovina na malo u nespecijalizovanim prodavnicama,pretežno hranom,pićem i duvanom"] = company["djelatnost"]
+    
+    # Žiro račun - sample iz Prijave trgovine i Prijave zanatstva
     if company.get("ziro_racun"):
         repl["535-26292-64"] = company["ziro_racun"]
+        repl["530-797915-34"] = company["ziro_racun"]
+    
+    # PDV broj
+    if company.get("pdv_broj"):
+        for sample_pdv in SAMPLE_PDV_NUMBERS:
+            repl[sample_pdv] = company["pdv_broj"]
     
     # Telefon - prvo company, ako nema onda agency
     company_tel = company.get("telefon") or agency.get("telefon", "")
     if company_tel:
         repl["+382 69 172 204"] = company_tel
         repl["069 172 204"] = company_tel
+        # Sample telefoni iz različitih šablona
+        for sample_phone in SAMPLE_PHONES:
+            repl[sample_phone] = company_tel
     
     # Email - prvo company, ako nema onda agency
     company_email = company.get("email") or agency.get("email", "")
     if company_email:
         repl["Advanced.acct@hotmail.com"] = company_email
+        repl["advanced.acct@hotmail.com"] = company_email
+        repl["restauranculto@gmail.com"] = company_email
     
     # Datum rođenja direktora - ako firma ima, ostaje 30.04.1985 za korisnika da popuni ručno
     # (Nemamo to polje u modelu trenutno)
+    repl["30.04.1985"] = "____________"
+    
+    # Ime oca/majke direktora - nema u DB, ostavi blank
+    repl["QAMIL"] = "________________"
+    repl["NADIRE"] = "________________"
+    
+    # Mjesto/opština rođenja direktora - nema u DB
+    # "BAR" se javlja samo u kontekstu mjesta/opštine rođenja u Zahtjevu iz kaznene evidencije
+    # ne diraj ostale upotrebe BAR. (Ostavi za korisnika.)
+    
+    # Naziv objekta (samo prvi varijant - tačan tekst iz šablona)
+    if company.get("naziv_skraceni") or company.get("naziv"):
+        obj_short = company.get("naziv_skraceni") or company.get("naziv", "")
+        repl["LOUNGE BAR CULT"] = obj_short
+    
+    # Tipografski tipfeleri iz konverzije PDF→DOCX (UCLINJ → ULCINJ)
+    if company_grad:
+        repl["UCLINJ"] = company_grad
     
     # Agency name + PIB + director - always replace samples with current agency data
     agency_naziv = agency.get("naziv", "")
@@ -1031,14 +1105,24 @@ def _build_replacements(company: dict, employee: Optional[dict], agency: dict, c
             "Zaposlenom __________________",
         ]:
             repl[blank_zap] = f"Zaposleni: {emp_full}"
+        # Izjava o pravima/obavezama: "Ime i prezime: __________"
+        for blank_imepr in [
+            "Ime i prezime: ________________________",
+            "Ime i prezime:________________________",
+            "Ime i prezime: ____________________",
+            "Ime i prezime:____________________",
+        ]:
+            repl[blank_imepr] = f"Ime i prezime: {emp_full}"
         
         if emp_jmbg:
             for blank_jmbg in [
                 "JMB: _____________________",
                 "JMB:_____________________",
                 "JMBG: _____________________",
+                "JMBG:  __________________",
+                "JMBG: __________________",
             ]:
-                repl[blank_jmbg] = f"JMB: {emp_jmbg}"
+                repl[blank_jmbg] = f"JMBG: {emp_jmbg}"
         
         if emp_pozicija:
             for blank_pos in [
@@ -1046,10 +1130,20 @@ def _build_replacements(company: dict, employee: Optional[dict], agency: dict, c
                 "Radno mjesto:____________________",
                 "radno mjesto:__________",
                 "radno mjesto: __________",
+                "Radno mjesto: ___________",
+                "Radno mjesto:___________",
             ]:
                 repl[blank_pos] = f"Radno mjesto: {emp_pozicija}"
             # Dodatne pozicije iz RJESENJE O PRESTANKU
             repl["pomocni radnik"] = emp_pozicija.lower() if emp_pozicija else "pomocni radnik"
+        
+        # Datum stupanja na rad - IZJAVA o pravima i obavezama
+        if formatted_start:
+            for blank_ds in [
+                "Datum stupanja na rad: _______________",
+                "Datum stupanja na rad:_______________",
+            ]:
+                repl[blank_ds] = f"Datum stupanja na rad: {formatted_start}"
         
         # Datum prestanka radnog odnosa - sample datumi u Rješenju o prestanku
         # ako je upisan datum_prestanka, koristi taj; inače današnji datum
@@ -1064,12 +1158,16 @@ def _build_replacements(company: dict, employee: Optional[dict], agency: dict, c
     
     # Header datumi u dokumentima ("Ulcinj, 01.01.2026 god.") → grad firme + današnji datum
     header_city = company_grad or "Ulcinj"
-    today_str = today.strftime("%d.%m.%Y")
     repl["Ulcinj, 01.01.2026 god."] = f"{header_city}, {today_str} god."
     repl["Ulcinj, 02.02.2026 god."] = f"{header_city}, {today_str} god."
     repl["Ulcinj, 02.02.2026"] = f"{header_city}, {today_str}"
     repl["Ulcinj, 16.02.2026"] = f"{header_city}, {today_str}"
     repl["Ulcinj, 16.02.2026 godine"] = f"{header_city}, {today_str} godine"
+    repl["Ulcinj, 02.04.2026 god."] = f"{header_city}, {today_str} god."
+    repl["Ulcinj, 02.04.2026"] = f"{header_city}, {today_str}"
+    repl["U ULCINJ, dana 02.06.2026 godine."] = f"U {header_city}, dana {today_str} godine."
+    repl["U ULCINJ, dana 02.06.2026 godine"] = f"U {header_city}, dana {today_str} godine"
+    repl["02.06.2026"] = today_str
     repl["U VLADIMIR, dana 01.03.2026  godine"] = f"U {header_city}, dana {today_str} godine"
     repl["U VLADIMIR, dana 01.03.2026 godine"] = f"U {header_city}, dana {today_str} godine"
     repl["dana 01.03.2026"] = f"dana {today_str}"
@@ -1078,7 +1176,24 @@ def _build_replacements(company: dict, employee: Optional[dict], agency: dict, c
     repl[" 16.02.2026"] = f" {today_str}"
     repl["04.05.2026"] = today_str  # punomocje token
     
-    # Brojač broja dokumenta - ostavi blank za korisnika
+    # ========== MSG 292: Datumi koji se uvijek setuju na današnji (datum štampe) ==========
+    # OP OBRAZAC: "PODGORICA, 18.05.2026 godine" → "PODGORICA, [danas] godine"
+    repl["PODGORICA, 18.05.2026 godine"] = f"PODGORICA, {today_str} godine"
+    # OP OBRAZAC: "UP I 02/02-057/2026-34002/2" → blank (broj rješenja)
+    repl["UP I 02/02-057/2026-34002/2"] = "________________"
+    # Prijava zanatstva: "31.10.2025" → današnji (datum prijave i ispunjenosti uslova)
+    repl["31.10.2025"] = today_str
+    # Prijava zanatstva: "Br./Nr.: 08- 306" → "Br./Nr.: 08- ___"
+    repl["Br./Nr.: 08- 306"] = "Br./Nr.: 08- _____"
+    # Odluka o blagajničkom maksimumu: "dana 02.02.2026 donosi" → "dana [danas] donosi"
+    repl["dana 02.02.2026 donosi"] = f"dana {today_str} donosi"
+    # Odluka za popust u prodavnicu: "dana 21.05.2026 god. donos" → "dana [danas] god. donosi"
+    # Note: ovo je već pokriveno kroz "dana 01.03.2026" mapiranje gore, ali za svaki slučaj:
+    repl["dana 01.01.2026 god."] = f"dana {today_str} god."
+    repl["dana 02.02.2026 god."] = f"dana {today_str} god."
+    repl["dana 16.02.2026 god."] = f"dana {today_str} god."
+    
+    # Broj broja dokumenta - ostavi blank za korisnika
     repl["BR:10/2026"] = "BR: ___/2026"
     
     # ========== BLANK PLACEHOLDERS (underscore lines) ==========
@@ -1187,7 +1302,93 @@ def _build_replacements(company: dict, employee: Optional[dict], agency: dict, c
         key = k if k.startswith("[") else f"[{k}]"
         repl[key] = str(v)
     
+    # ========== MSG 292: Template-specifični prepisivi ==========
+    tname_lower = (template_filename or "").lower()
+    
+    # "Rješenje o korišćenju godišnjeg odmora" → datum štampe ne treba (klijent popunjava ručno)
+    if "rjesenje" in tname_lower and ("godisnj" in tname_lower or "godišnj" in tname_lower):
+        # Resetuj sve današnje datume u headerima na blank
+        repl[f"{header_city}, {today_str} god."] = f"{header_city}, ________________ god."
+        repl[f"{header_city}, {today_str} godine"] = f"{header_city}, ________________ godine"
+        repl[f"{header_city}, {today_str}"] = f"{header_city}, ________________"
+        # "Datum: 21.05.2026" (već popunjeno iz blank field) → "Datum: ____"
+        repl[f"Datum: {today_str}"] = "Datum: ________________"
+    
+    # "Rješenje o prestanku radnog odnosa kad ističe ugovor o radu" → datum štampe = today;
+    # datum prestanka rada = employee.datum_prestanka (već mapirano kroz `prestanak_date`)
+    # Ako je ovo termination rješenje a nema datum_prestanka, koristi datum_kraja
+    if "prestan" in tname_lower and employee:
+        emp_prestanak2 = employee.get("datum_prestanka") or employee.get("datum_kraja")
+        if emp_prestanak2:
+            try:
+                dt = datetime.fromisoformat(emp_prestanak2.replace('Z',''))
+                fp = dt.strftime("%d.%m.%Y")
+                repl["31.03.2026"] = fp
+                repl["28.02.2026"] = fp
+            except Exception:
+                pass
+    
+    # "Obrazloženje za poresku upravu kad kasnimo sa odjavama" → datum prestanka = employee.datum_prestanka
+    if "obrazlozenje" in tname_lower and employee:
+        emp_prestanak2 = employee.get("datum_prestanka") or employee.get("datum_kraja")
+        if emp_prestanak2:
+            try:
+                dt = datetime.fromisoformat(emp_prestanak2.replace('Z',''))
+                fp = dt.strftime("%d.%m.%Y")
+                repl["31.03.2026"] = fp
+                repl["28.02.2026"] = fp
+            except Exception:
+                pass
+    
     return repl
+
+
+def _fit_to_a4_one_page(doc: Document):
+    """Postavlja A4 dimenzije, smanjuje margine i font da bi dokument stao u 1 stranicu.
+    Koristi se za Obavještenje o knjizi prigovora (MSG 292).
+    """
+    from docx.shared import Cm, Pt
+    # A4: 21.0 cm x 29.7 cm
+    for section in doc.sections:
+        section.page_width = Cm(21.0)
+        section.page_height = Cm(29.7)
+        section.top_margin = Cm(1.3)
+        section.bottom_margin = Cm(1.3)
+        section.left_margin = Cm(1.5)
+        section.right_margin = Cm(1.5)
+    
+    # Smanji font veličinu za sve runove ako su veći od 11pt
+    for para in doc.paragraphs:
+        # Smanji prored
+        try:
+            para.paragraph_format.space_before = Pt(0)
+            para.paragraph_format.space_after = Pt(2)
+        except Exception:
+            pass
+        for run in para.runs:
+            try:
+                cur = run.font.size
+                if cur is None or cur > Pt(11):
+                    run.font.size = Pt(10)
+            except Exception:
+                pass
+    
+    for table in doc.tables:
+        for row in table.rows:
+            for cell in row.cells:
+                for para in cell.paragraphs:
+                    try:
+                        para.paragraph_format.space_before = Pt(0)
+                        para.paragraph_format.space_after = Pt(1)
+                    except Exception:
+                        pass
+                    for run in para.runs:
+                        try:
+                            cur = run.font.size
+                            if cur is None or cur > Pt(11):
+                                run.font.size = Pt(10)
+                        except Exception:
+                            pass
 
 
 def _docx_replace(doc: Document, replacements: Dict[str, str]):
@@ -1277,11 +1478,15 @@ async def generate_document(req: DocumentGenerateRequest, username: str = Depend
     
     agency = await db.agency.find_one({}, {"_id": 0}) or Agency().model_dump()
     
-    replacements = _build_replacements(company, employee, agency, req.custom_fields)
+    replacements = _build_replacements(company, employee, agency, req.custom_fields, req.template_filename)
     
     # Load template, replace, save
     doc = Document(str(template_path))
     _docx_replace(doc, replacements)
+    
+    # MSG 292: Formatiranje na 1 A4 stranicu za Obavještenje o knjizi prigovora
+    if "knjige prigovora" in req.template_filename.lower() or "knjigu prigovora" in req.template_filename.lower() or "podnosenja prigovora" in req.template_filename.lower():
+        _fit_to_a4_one_page(doc)
     
     # Save generated file
     output_filename = f"{uuid.uuid4().hex[:8]}_{template_path.stem}_{company.get('naziv_skraceni') or company.get('naziv','firma')[:20]}.docx"
@@ -1382,7 +1587,7 @@ async def generate_aneks(req: AneksRequest, username: str = Depends(get_current_
     aneks_broj = f"{aneks_count + 1}/{today.year}"
     
     # Build replacements
-    replacements = _build_replacements(company, employee, agency, {})
+    replacements = _build_replacements(company, employee, agency, {}, "ANEKS UGOVORA O RADU.docx")
     replacements["[ANEKS_IZMJENE]"] = izmjene_text
     replacements["{ANEKS_BROJ}"] = aneks_broj
     

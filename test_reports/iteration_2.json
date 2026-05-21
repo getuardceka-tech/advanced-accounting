@@ -1,0 +1,51 @@
+{
+  "summary": "Iteration 2 backend testing for document generation (MSG 292). Created /app/backend/tests/test_document_generation.py with 19 tests covering templates count, MSG-292 datum behavior, newly-converted DOCX-from-PDF templates, A4 1-page fitting, and ANEKS regression. Result: 16/19 PASSED, 3 FAILED — all 3 failures are REAL backend bugs (not test-script issues) in three of the seven new PDF→DOCX converted templates.",
+  "backend_issues": {
+    "critical": [
+      {
+        "endpoint": "POST /api/documents/generate (template: 'Zahtjev za uzorkovanje i ispitivanje - VODA ZA PICE.docx')",
+        "issue": "Returns 500 Internal Server Error. Root cause: python-docx raises 'ValueError: no `tc` element at grid_offset=2' inside server.py:1419 `_docx_replace`'s `for cell in row.cells:` loop. The DOCX produced by pdf2docx for VODA template contains malformed/vertically-merged table cells which python-docx cannot iterate. Fix: wrap row.cells iteration in try/except and fall back to iterating raw tc elements, OR re-create the template manually instead of relying on pdf2docx output.",
+        "priority": "CRITICAL"
+      },
+      {
+        "endpoint": "POST /api/documents/generate (template: 'prijava_zanatstva_.docx')",
+        "issue": "Generates OK but the company NAZIV (e.g. 'ADVANCED ACCOUNTING ULCINJ') is NOT inserted into the '1.1. Naziv/ime/Emri __________' field. PIB ('03719073') was already hardcoded in the converted template, but no substitution placeholder is wired up for naziv on this template. Fix: add template-specific blank-line/label replacements in _build_replacements for 'prijava_zanatstva_.docx' so 'Naziv/ime/Emri ____' becomes 'Naziv/ime/Emri {naziv}'. Adresa, sjedište, telefon, šifra djelatnosti also need to be verified for actual insertion.",
+        "priority": "HIGH"
+      },
+      {
+        "endpoint": "POST /api/documents/generate (template: 'ZAHTJEV IZ KAZNENE EVIDENCIJE FIZICKO LICE.docx')",
+        "issue": "When employee_id is sent, the document is still populated with the AGENCY DIRECTOR data (MIRSADA CEKOVIQ, JMBG 2603972228013) instead of the selected employee (Vesel Suma in our test). The IME/PREZIME/JMB/ADRESA fields contain agency-director values. Root cause: template-specific override for 'kaznene evidencije fizicko lice' likely binds to agency.direktor_ime/jmbg rather than employee.ime/jmbg, OR the override is missing and the originally-hardcoded VESEL/SUMA were swapped with agency director instead of employee. Fix: in _build_replacements, when template is 'kaznene' and employee is provided, use employee.{ime,prezime,jmbg,adresa} (NOT agency director).",
+        "priority": "HIGH"
+      }
+    ],
+    "minor": []
+  },
+  "frontend_issues": {"ui_bugs": [], "integration_issues": [], "design_issues": []},
+  "test_report_links": [
+    "/app/backend/tests/test_document_generation.py",
+    "/app/test_reports/pytest/iter2_results.xml"
+  ],
+  "action_items": [
+    "Fix POST /api/documents/generate 500 for 'Zahtjev za uzorkovanje i ispitivanje - VODA ZA PICE.docx' (python-docx tc grid_offset error). Either harden _docx_replace's cell iteration or re-author the template without merged/missing tc cells.",
+    "Wire up company-field substitutions in 'prijava_zanatstva_.docx' (currently company naziv, adresa, telefon NOT inserted after PDF→DOCX conversion).",
+    "Fix 'ZAHTJEV IZ KAZNENE EVIDENCIJE FIZICKO LICE.docx' to use employee data (ime/prezime/jmbg) when employee_id is supplied, instead of agency director.",
+    "Verify and add field-mapping coverage tests for all 7 PDF→DOCX converted templates (only 4/7 currently working: brisevi, hrana, registracija bezbjednost hrane, plus partial kazneno)."
+  ],
+  "critical_code_review_comments": [
+    "_docx_replace (server.py ~1419) iterates row.cells which raises on malformed tc grids produced by pdf2docx. Wrap iteration in try/except per-row, or iterate `_tc.tr.iter_tcs()` instead, to make the engine resilient to noisy converted templates.",
+    "pdf2docx-produced templates frequently have placeholders as visual blanks ('____') rather than runs containing the placeholder text — _build_replacements should support template-specific rules that REPLACE the long-underscore-blanks adjacent to known labels (e.g., 'Naziv/ime/Emri'), similar to existing 'Datum:'/'Ime i prezime:' patterns.",
+    "Inconsistent employee vs agency-director resolution: for kazneno-fizicko-lice the engine falls back to agency director. Centralize the 'who is the subject' logic (employee vs agency) per-template.",
+    "server.py is now 1844 lines — well beyond the 700-line guideline. Strongly recommend splitting into routers/ + services/ (auth, companies, employees, documents, pdv, reminders).",
+    "_convert_to_pdf runs synchronously inside the request (LibreOffice ~2-3s). Consider running it in a background task and serving the .docx download immediately; preview URL can poll readiness."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_document_generation.py (new)"
+  ],
+  "success_rate": {"backend": "84% (16/19)", "frontend": "N/A (not requested)"},
+  "test_credentials": "username='getuard' password='Getuard1994.' (from /app/memory/test_credentials.md)",
+  "seed_data_creation": "Test created a Konobar employee 'Vesel Suma' (datum_kraja=2026-12-31) on the first existing company (ADVANCED ACCOUNTING) to exercise datum_kraja-based templates. Test_company is set up with ziro_racun, telefon, email, sifra_djelatnosti when missing.",
+  "retest_needed": true,
+  "main_agent_can_self_test": false,
+  "context_for_next_testing_agent": "Run: REACT_APP_BACKEND_URL=$(grep REACT_APP_BACKEND_URL /app/frontend/.env|cut -d= -f2) pytest /app/backend/tests/test_document_generation.py -v. Three known-failing tests target real backend bugs (VODA 500, prijava_zanatstva naziv blank, kazneno-fizicko using director instead of employee). All other 16 tests cover MSG 292 datum mappings + 1-page A4 fitting + ANEKS — they pass and should be kept green as regression. Existing /app/backend/tests/backend_test.py (iter1) still passes (24/24).",
+  "rca of the issue": "1) VODA 500 — pdf2docx-produced DOCX contains a table row where python-docx's tc_at_grid_offset lookup fails because of grid_span/v_merge gaps; the exception bubbles up because _docx_replace iterates row.cells without protection. Repro: POST /api/documents/generate with template_filename='Zahtjev za uzorkovanje i ispitivanje - VODA ZA PICE.docx'. Mitigation: catch ValueError around `for cell in row.cells:` or rewrite cell iteration via tr.findall('.//w:tc'). 2) prijava_zanatstva: pdf2docx kept the visual blanks as plain underscores; no placeholder runs. Mitigation: add label-aware replacements (e.g., replace ' Naziv/ime/Emri ___...___' → ' Naziv/ime/Emri  {naziv}'). 3) Kazneno-fizicko: the template-specific branch uses agency.direktor_* instead of employee.* (or falls back to it when the employee-specific branch is not triggered). Mitigation: when employee_id is provided, ALWAYS use employee fields for this template's IME/PREZIME/JMB/ADRESA placeholders."
+}
