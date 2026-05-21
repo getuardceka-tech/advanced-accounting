@@ -36,6 +36,9 @@ const empty = {
   ioppd_obveznik: false,
   aktivna: true,
   napomena: "",
+  irms_status: "",
+  irms_checked_at: "",
+  datum_registracije: "",
 };
 
 export default function Companies() {
@@ -130,6 +133,7 @@ export default function Companies() {
       const r = await api.get(`/companies/lookup-pib?pib=${pib}`);
       if (r.data.success && r.data.data) {
         const data = r.data.data;
+        const status = data.status || "";
         setForm((f) => ({
           ...f,
           naziv: data.naziv || f.naziv,
@@ -142,8 +146,18 @@ export default function Companies() {
           direktor_ime: data.direktor_ime || f.direktor_ime,
           telefon: data.telefon || f.telefon,
           email: data.email || f.email,
+          datum_registracije: data.datum_registracije || f.datum_registracije,
+          irms_status: status,
+          irms_checked_at: new Date().toISOString(),
         }));
-        setLookupMsg(`✓ Podaci preuzeti sa IRMS portala (${data.status || "Registrovan"})`);
+        // Obojen status banner
+        if (status === "Registrovan") {
+          setLookupMsg(`✓ Podaci preuzeti sa IRMS portala (Status: Registrovan)`);
+        } else if (status) {
+          setLookupMsg(`⚠ PAŽNJA — IRMS status firme: ${status}. Firma možda nije aktivna.`);
+        } else {
+          setLookupMsg(`✓ Podaci preuzeti sa IRMS portala`);
+        }
       } else {
         setLookupMsg(
           r.data.message ||
@@ -305,6 +319,15 @@ export default function Companies() {
                       {c.pdv_obveznik && <span className="badge badge-blue">PDV</span>}
                       {c.ioppd_obveznik && <span className="badge badge-neutral">IOPPD</span>}
                       {!c.aktivna && <span className="badge badge-danger">Neaktivna</span>}
+                      {c.irms_status && c.irms_status !== "Registrovan" && (
+                        <span
+                          className="badge"
+                          style={{ background: "#fef2f2", color: "#991b1b", border: "1px solid #fca5a5" }}
+                          title={`IRMS status: ${c.irms_status}`}
+                        >
+                          ⚠ {c.irms_status}
+                        </span>
+                      )}
                     </div>
                   </td>
                   <td onClick={(e) => e.stopPropagation()}>
@@ -420,12 +443,23 @@ function CompanyModal({ form, setForm, editing, onSave, onClose, saving, error, 
               <div
                 style={{
                   marginTop: 10,
-                  padding: "8px 10px",
+                  padding: "10px 12px",
                   borderRadius: 6,
                   fontSize: 12.5,
-                  background: lookupMsg.startsWith("✓") ? "var(--success-bg)" : "var(--warning-bg)",
-                  color: lookupMsg.startsWith("✓") ? "var(--success-text)" : "var(--warning-text)",
+                  fontWeight: lookupMsg.startsWith("⚠") ? 600 : 500,
+                  background: lookupMsg.startsWith("✓")
+                    ? "var(--success-bg)"
+                    : lookupMsg.startsWith("⚠")
+                    ? "#fef2f2"
+                    : "var(--warning-bg)",
+                  color: lookupMsg.startsWith("✓")
+                    ? "var(--success-text)"
+                    : lookupMsg.startsWith("⚠")
+                    ? "#991b1b"
+                    : "var(--warning-text)",
+                  border: lookupMsg.startsWith("⚠") ? "1px solid #fca5a5" : "none",
                 }}
+                data-testid="lookup-msg"
               >
                 {lookupMsg}
               </div>

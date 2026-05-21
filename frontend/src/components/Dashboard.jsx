@@ -29,6 +29,7 @@ export default function Dashboard() {
   const [companies, setCompanies] = useState([]);
   const [docs, setDocs] = useState([]);
   const [expiring, setExpiring] = useState([]);
+  const [irmsAlerts, setIrmsAlerts] = useState([]);
   const [aneksFor, setAneksFor] = useState(null);
 
   const loadExpiring = () => api.get("/reminders/expiring-contracts?days=30").then((r) => setExpiring(r.data));
@@ -39,6 +40,7 @@ export default function Dashboard() {
       api.get("/companies").then((r) => setCompanies(r.data.slice(0, 5))),
       api.get("/documents").then((r) => setDocs(r.data.slice(0, 5))),
       loadExpiring(),
+      api.get("/companies/irms-alerts").then((r) => setIrmsAlerts(r.data)).catch(() => {}),
     ]).catch(() => {});
   }, []);
 
@@ -112,6 +114,56 @@ export default function Dashboard() {
 
       {/* Two column section */}
       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16 }}>
+        {/* IRMS Status Alerts - firme koje nisu Registrovan */}
+        {irmsAlerts.length > 0 && (
+          <div
+            className="card card-padded"
+            style={{ gridColumn: "1 / -1", borderLeft: "3px solid #dc2626", background: "#fef2f2" }}
+            data-testid="irms-alerts-widget"
+          >
+            <SectionHeader
+              title={
+                <span style={{ display: "inline-flex", alignItems: "center", gap: 8 }}>
+                  <WarningCircle size={18} color="#dc2626" weight="fill" />
+                  IRMS upozorenja — firme koje nisu aktivne u Poreskoj upravi
+                </span>
+              }
+              action={
+                <span className="badge" style={{ background: "#dc2626", color: "white" }}>
+                  {irmsAlerts.length}
+                </span>
+              }
+            />
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(280px, 1fr))", gap: 10, marginTop: 8 }}>
+              {irmsAlerts.map((a) => (
+                <div
+                  key={a.id}
+                  onClick={() => navigate(`/firme/${a.id}`)}
+                  data-testid={`irms-alert-${a.pib}`}
+                  style={{
+                    background: "white",
+                    border: "1px solid #fca5a5",
+                    borderRadius: 8,
+                    padding: 10,
+                    cursor: "pointer",
+                  }}
+                >
+                  <div style={{ fontWeight: 600, fontSize: 13, marginBottom: 2 }}>{a.naziv}</div>
+                  <div style={{ fontSize: 11.5, color: "#6b7280", marginBottom: 4, fontFamily: "JetBrains Mono, monospace" }}>
+                    PIB {a.pib}
+                  </div>
+                  <span
+                    className="badge"
+                    style={{ background: "#fef2f2", color: "#991b1b", border: "1px solid #fca5a5", fontSize: 11 }}
+                  >
+                    ⚠ {a.irms_status}
+                  </span>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+        
         {/* Podsjetnici - ugovori koji ističu */}
         {expiring.length > 0 && (
           <div className="card card-padded" style={{ gridColumn: "1 / -1", borderLeft: "3px solid #d97706" }} data-testid="expiring-contracts-widget">

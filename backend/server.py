@@ -99,6 +99,10 @@ class Company(BaseModel):
     ioppd_obveznik: bool = False
     aktivna: bool = True
     napomena: str = ""
+    # IRMS status (auto-popunjavanje iz Poreske uprave CG)
+    irms_status: str = ""  # "Registrovan", "U likvidaciji", "U stečaju", "Mirovanje poslovanja", ...
+    irms_checked_at: str = ""  # ISO datum poslednje provjere
+    datum_registracije: str = ""  # iz IRMS-a, YYYY-MM-DD
     created_at: str = Field(default_factory=lambda: datetime.now(timezone.utc).isoformat())
 
 class CompanyCreate(BaseModel):
@@ -122,6 +126,9 @@ class CompanyCreate(BaseModel):
     ioppd_obveznik: Optional[bool] = False
     aktivna: Optional[bool] = True
     napomena: Optional[str] = ""
+    irms_status: Optional[str] = ""
+    irms_checked_at: Optional[str] = ""
+    datum_registracije: Optional[str] = ""
 
 class Employee(BaseModel):
     model_config = ConfigDict(extra="ignore")
@@ -526,6 +533,18 @@ async def list_companies(
         ]
     companies = await db.companies.find(query, {"_id": 0}).sort("naziv", 1).to_list(1000)
     return companies
+
+@api_router.get("/companies/irms-alerts")
+async def irms_alerts(username: str = Depends(get_current_user)):
+    """Vraća listu firmi čiji IRMS status NIJE 'Registrovan' (npr. u likvidaciji, stečaju, mirovanje)."""
+    cursor = db.companies.find(
+        {
+            "irms_status": {"$exists": True, "$ne": "", "$nin": ["Registrovan", ""]}
+        },
+        {"_id": 0, "id": 1, "naziv": 1, "pib": 1, "irms_status": 1, "irms_checked_at": 1}
+    )
+    return [doc async for doc in cursor]
+
 
 @api_router.get("/companies/{company_id}")
 async def get_company(company_id: str, username: str = Depends(get_current_user)):
