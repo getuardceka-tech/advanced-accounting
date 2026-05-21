@@ -1606,12 +1606,33 @@ def _docx_replace(doc: Document, replacements: Dict[str, str]):
 
 import subprocess
 
+def _ensure_libreoffice_installed():
+    """Self-healing: ako 'soffice' nije instaliran (može se desiti nakon container restart-a),
+    pokreni apt-get install. Cache-uje rezultat da ne mlatimo apt na svaki poziv."""
+    import shutil
+    if shutil.which("soffice"):
+        return True
+    logging.warning("soffice not found — auto-installing LibreOffice…")
+    try:
+        subprocess.run(["apt-get", "install", "-y", "libreoffice-core", "libreoffice-writer"],
+                       capture_output=True, timeout=240, check=False)
+        return shutil.which("soffice") is not None
+    except Exception as e:
+        logging.error(f"LibreOffice auto-install failed: {e}")
+        return False
+
+
 def _convert_to_pdf(docx_path: Path) -> Optional[Path]:
     """Konvertuje docx u PDF koristeći LibreOffice headless. Vraća putanju do PDF-a ili None."""
     try:
         pdf_path = docx_path.with_suffix('.pdf')
         if pdf_path.exists():
             return pdf_path
+        
+        # Self-heal: ako LibreOffice fali, pokušaj da ga instaliraš
+        if not _ensure_libreoffice_installed():
+            logging.error("LibreOffice nije dostupan i auto-instalacija nije uspjela")
+            return None
         
         # Run LibreOffice headless conversion
         result = subprocess.run(
@@ -1852,6 +1873,10 @@ async def preview_document(filename: str, token: Optional[str] = None):
                 file_path = TEMPLATES_DIR / safe_name
     
     if not file_path.exists():
+        # Provjeri da li je razlog što LibreOffice fali
+        import shutil
+        if safe_name.endswith('.pdf') and not shutil.which("soffice"):
+            raise HTTPException(503, "LibreOffice nije dostupan na serveru — konverzija u PDF nije uspjela. Molim restartujte ili kontaktirajte podršku.")
         raise HTTPException(404, "Dokument nije pronađen")
     
     # ASCII-safe filename za HTTP header (RFC 5987 za UTF-8)
