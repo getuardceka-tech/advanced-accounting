@@ -1854,11 +1854,17 @@ async def preview_document(filename: str, token: Optional[str] = None):
     if not file_path.exists():
         raise HTTPException(404, "Dokument nije pronađen")
     
+    # ASCII-safe filename za HTTP header (RFC 5987 za UTF-8)
+    from urllib.parse import quote
+    ascii_name = safe_name.encode("ascii", "replace").decode("ascii").replace("?", "_")
+    utf8_name = quote(safe_name)
     return FileResponse(
         path=str(file_path),
-        filename=safe_name,
+        filename=ascii_name,
         media_type='application/pdf',
-        headers={"Content-Disposition": f'inline; filename="{safe_name}"'}
+        headers={
+            "Content-Disposition": f"inline; filename=\"{ascii_name}\"; filename*=UTF-8''{utf8_name}"
+        }
     )
 
 @api_router.get("/documents/download/{filename}")
@@ -1878,10 +1884,16 @@ async def download_document(filename: str, token: Optional[str] = None):
         if not file_path.exists():
             raise HTTPException(404, "Fajl nije pronađen")
     
+    from urllib.parse import quote
+    ascii_name = safe_name.encode("ascii", "replace").decode("ascii").replace("?", "_")
+    utf8_name = quote(safe_name)
     return FileResponse(
         path=str(file_path),
-        filename=safe_name,
-        media_type='application/octet-stream'
+        filename=ascii_name,
+        media_type='application/octet-stream',
+        headers={
+            "Content-Disposition": f"attachment; filename=\"{ascii_name}\"; filename*=UTF-8''{utf8_name}"
+        }
     )
 
 @api_router.get("/documents")
