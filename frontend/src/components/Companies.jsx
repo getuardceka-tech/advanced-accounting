@@ -377,10 +377,22 @@ function CompanyModal({ form, setForm, editing, onSave, onClose, saving, error, 
                 target="_blank"
                 rel="noreferrer"
                 className="btn btn-ghost"
-                title="Otvori IRMS portal"
+                title="Otvori IRMS portal (Poreska uprava)"
                 data-testid="open-irms-link"
               >
                 <ArrowSquareOut size={14} />
+                IRMS
+              </a>
+              <a
+                href={`https://www.biznisregistri.me`}
+                target="_blank"
+                rel="noreferrer"
+                className="btn btn-ghost"
+                title="Otvori CRPS portal (Centralni registar privrednih subjekata)"
+                data-testid="open-crps-link"
+              >
+                <ArrowSquareOut size={14} />
+                CRPS
               </a>
             </div>
             {lookupMsg && (
