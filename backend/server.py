@@ -172,6 +172,16 @@ class DocumentGenerateRequest(BaseModel):
     employee_id: Optional[str] = None
     custom_fields: Dict[str, str] = {}  # dodatna polja koja korisnik ručno popunjava
 
+
+class AneksRequest(BaseModel):
+    employee_id: str
+    nova_vrsta_ugovora: str = "neodredjeno"  # neodredjeno/odredjeno
+    novi_datum_kraja: Optional[str] = ""
+    nova_plata_neto: Optional[float] = None
+    nova_pozicija: Optional[str] = ""
+    razlog: Optional[str] = ""
+    update_employee: bool = True  # ažurirati i polja zaposlenog u bazi
+
 class PaymentRecord(BaseModel):
     model_config = ConfigDict(extra="ignore")
     id: str = Field(default_factory=lambda: str(uuid.uuid4()))
@@ -1173,6 +1183,129 @@ async def generate_document(req: DocumentGenerateRequest, username: str = Depend
         "download_url": f"/api/documents/download/{output_filename}",
         "preview_url": f"/api/documents/preview/{pdf_filename}",
         "record": record
+    }
+
+
+@api_router.post("/documents/generate-aneks")
+async def generate_aneks(req: AneksRequest, username: str = Depends(get_current_user)):
+    """Generiše aneks ugovora i opciono ažurira polja zaposlenog u bazi."""
+    employee = await db.employees.find_one({"id": req.employee_id}, {"_id": 0})
+    if not employee:
+        raise HTTPException(404, "Zaposleni nije pronađen")
+    
+    company = await db.companies.find_one({"id": employee.get("company_id")}, {"_id": 0})
+    if not company:
+        raise HTTPException(404, "Firma nije pronađena")
+    
+    agency = await db.agency.find_one({}, {"_id": 0}) or Agency().model_dump()
+    
+    # Konstruiši opis izmjena u Članu 2
+    izmjene_lines = []
+    
+    # Trajanje radnog odnosa
+    today = datetime.now(timezone.utc).date()
+    if req.nova_vrsta_ugovora == "neodredjeno":
+        izmjene_lines.append(
+            f"Radni odnos se mijenja u radni odnos NA NEODREĐENO VRIJEME, počev od {today.strftime('%d.%m.%Y')} godine."
+        )
+    elif req.nova_vrsta_ugovora == "odredjeno":
+        end_str = "____________"
+        if req.novi_datum_kraja:
+            try:
+                end_dt = datetime.fromisoformat(req.novi_datum_kraja.replace('Z',''))
+                end_str = end_dt.strftime('%d.%m.%Y')
+            except Exception:
+                end_str = req.novi_datum_kraja
+        izmjene_lines.append(
+            f"Radni odnos se produžava NA ODREĐENO VRIJEME, počev od {today.strftime('%d.%m.%Y')} do {end_str} godine."
+        )
+    
+    # Iznos zarade
+    if req.nova_plata_neto is not None and req.nova_plata_neto > 0:
+        stara = float(employee.get("plata_neto") or 0)
+        izmjene_lines.append(
+            f"Iznos neto zarade se mijenja sa {stara:.2f} eura na {float(req.nova_plata_neto):.2f} eura mjesečno."
+        )
+    
+    # Radno mjesto
+    if req.nova_pozicija:
+        stara_poz = employee.get("pozicija", "")
+        if stara_poz != req.nova_pozicija:
+            izmjene_lines.append(
+                f"Radno mjesto se mijenja iz \"{stara_poz}\" u \"{req.nova_pozicija}\"."
+            )
+    
+    if req.razlog:
+        izmjene_lines.append(f"Razlog izmjene: {req.razlog}")
+    
+    if not izmjene_lines:
+        izmjene_lines.append("(Nije navedena izmjena — molimo popunite Aneks ručno u Wordu.)")
+    
+    izmjene_text = "\n".join(f"{i+1}. {line}" for i, line in enumerate(izmjene_lines))
+    
+    # Brojač aneksa
+    aneks_count = await db.generated_documents.count_documents(
+        {"template": "ANEKS UGOVORA O RADU.docx", "employee_id": req.employee_id}
+    )
+    aneks_broj = f"{aneks_count + 1}/{today.year}"
+    
+    # Build replacements
+    replacements = _build_replacements(company, employee, agency, {})
+    replacements["[ANEKS_IZMJENE]"] = izmjene_text
+    replacements["{ANEKS_BROJ}"] = aneks_broj
+    
+    # Adresa firme full
+    adresa_full = f"{company.get('adresa','')}, {company.get('grad','')}".strip(", ")
+    replacements["[ADRESA_FIRME_FULL]"] = adresa_full or company.get('adresa','') or company.get('grad','')
+    
+    # Generate
+    template_path = TEMPLATES_DIR / "ANEKS UGOVORA O RADU.docx"
+    doc = Document(str(template_path))
+    _docx_replace(doc, replacements)
+    
+    output_filename = f"{uuid.uuid4().hex[:8]}_ANEKS_{employee.get('ime','')}_{employee.get('prezime','')}.docx"
+    output_filename = re.sub(r'[^\w.-]', '_', output_filename)
+    output_path = GENERATED_DIR / output_filename
+    doc.save(str(output_path))
+    
+    pdf_filename = output_filename.replace('.docx', '.pdf')
+    _convert_to_pdf(output_path)
+    
+    # Ažuriraj zaposlenog ako je traženo
+    if req.update_employee:
+        update = {"vrsta_ugovora": req.nova_vrsta_ugovora}
+        if req.novi_datum_kraja is not None:
+            update["datum_kraja"] = req.novi_datum_kraja if req.nova_vrsta_ugovora == "odredjeno" else ""
+        if req.nova_plata_neto is not None and req.nova_plata_neto > 0:
+            update["plata_neto"] = float(req.nova_plata_neto)
+        if req.nova_pozicija:
+            update["pozicija"] = req.nova_pozicija
+        await db.employees.update_one({"id": req.employee_id}, {"$set": update})
+    
+    # Save record
+    record = {
+        "id": str(uuid.uuid4()),
+        "filename": output_filename,
+        "pdf_filename": pdf_filename,
+        "template": "ANEKS UGOVORA O RADU.docx",
+        "company_id": company["id"],
+        "company_naziv": company.get("naziv", ""),
+        "employee_id": req.employee_id,
+        "employee_naziv": f"{employee.get('ime','')} {employee.get('prezime','')}".strip(),
+        "aneks_broj": aneks_broj,
+        "created_at": datetime.now(timezone.utc).isoformat(),
+        "created_by": username,
+    }
+    await db.generated_documents.insert_one(dict(record))
+    
+    return {
+        "success": True,
+        "filename": output_filename,
+        "pdf_filename": pdf_filename,
+        "preview_url": f"/api/documents/preview/{pdf_filename}",
+        "download_url": f"/api/documents/download/{output_filename}",
+        "aneks_broj": aneks_broj,
+        "record": record,
     }
 
 

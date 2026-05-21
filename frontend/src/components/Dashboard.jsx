@@ -9,8 +9,14 @@ import {
   TrendUp,
   WarningCircle,
   Clock,
+  Sparkle,
+  X,
+  Check,
+  Spinner,
+  Printer,
+  DownloadSimple,
 } from "@phosphor-icons/react";
-import api from "@/lib/api";
+import api, { getToken, API } from "@/lib/api";
 
 const monthNames = [
   "Januar", "Februar", "Mart", "April", "Maj", "Jun",
@@ -23,13 +29,16 @@ export default function Dashboard() {
   const [companies, setCompanies] = useState([]);
   const [docs, setDocs] = useState([]);
   const [expiring, setExpiring] = useState([]);
+  const [aneksFor, setAneksFor] = useState(null);
+
+  const loadExpiring = () => api.get("/reminders/expiring-contracts?days=30").then((r) => setExpiring(r.data));
 
   useEffect(() => {
     Promise.all([
       api.get("/stats").then((r) => setStats(r.data)),
       api.get("/companies").then((r) => setCompanies(r.data.slice(0, 5))),
       api.get("/documents").then((r) => setDocs(r.data.slice(0, 5))),
-      api.get("/reminders/expiring-contracts?days=30").then((r) => setExpiring(r.data)),
+      loadExpiring(),
     ]).catch(() => {});
   }, []);
 
@@ -124,17 +133,16 @@ export default function Dashboard() {
                 return (
                   <div
                     key={e.id}
-                    onClick={() => navigate(`/firme/${e.company_id}`)}
                     style={{
                       padding: 12,
                       background: isExpired ? "#fef2f2" : (isUrgent ? "#fefce8" : "#f8fafc"),
                       border: `1px solid ${isExpired ? "#fecaca" : (isUrgent ? "#fde68a" : "var(--border)")}`,
                       borderRadius: 8,
-                      cursor: "pointer",
                       display: "flex",
-                      gap: 12,
+                      gap: 10,
                       alignItems: "center",
                     }}
+                    data-testid={`expiring-card-${e.id}`}
                   >
                     <div style={{
                       width: 38, height: 38, borderRadius: 8,
@@ -160,6 +168,15 @@ export default function Dashboard() {
                           : `Ističe za ${e.days_left} ${e.days_left === 1 ? "dan" : "dana"}`} · {e.end_date_formatted}
                       </div>
                     </div>
+                    <button
+                      className="btn btn-primary btn-sm"
+                      onClick={() => setAneksFor(e)}
+                      title="Generiši aneks ugovora"
+                      style={{ flexShrink: 0 }}
+                      data-testid={`generate-aneks-${e.id}`}
+                    >
+                      <Sparkle size={13} /> Aneks
+                    </button>
                   </div>
                 );
               })}
@@ -341,6 +358,174 @@ export default function Dashboard() {
             );
           })}
         </div>
+      </div>
+
+      {aneksFor && (
+        <AneksModal
+          employee={aneksFor}
+          onClose={() => setAneksFor(null)}
+          onDone={() => { setAneksFor(null); loadExpiring(); }}
+        />
+      )}
+    </div>
+  );
+}
+
+function AneksModal({ employee, onClose, onDone }) {
+  const [vrsta, setVrsta] = useState("neodredjeno");
+  const [datum, setDatum] = useState("");
+  const [plata, setPlata] = useState("");
+  const [pozicija, setPozicija] = useState("");
+  const [razlog, setRazlog] = useState("");
+  const [generating, setGenerating] = useState(false);
+  const [result, setResult] = useState(null);
+  const [error, setError] = useState("");
+
+  const generate = async () => {
+    setGenerating(true);
+    setError("");
+    try {
+      const payload = {
+        employee_id: employee.id,
+        nova_vrsta_ugovora: vrsta,
+        novi_datum_kraja: vrsta === "odredjeno" ? datum : "",
+        nova_plata_neto: plata ? Number(plata) : null,
+        nova_pozicija: pozicija || "",
+        razlog: razlog || "",
+        update_employee: true,
+      };
+      const r = await api.post("/documents/generate-aneks", payload);
+      setResult(r.data);
+    } catch (e) {
+      setError(e.response?.data?.detail || "Greška pri generisanju aneksa");
+    } finally {
+      setGenerating(false);
+    }
+  };
+
+  return (
+    <div className="modal-backdrop" onClick={onClose} data-testid="aneks-modal">
+      <div className="modal animate-slide-up" onClick={(e) => e.stopPropagation()} style={{ maxWidth: 560 }}>
+        <div className="modal-header">
+          <div>
+            <div className="modal-title">Aneks ugovora o radu</div>
+            <div style={{ fontSize: 12, color: "var(--text-tertiary)", marginTop: 2 }}>
+              {employee.ime} {employee.prezime} · {employee.company_naziv}
+            </div>
+          </div>
+          <button onClick={onClose} style={{ border: "none", background: "transparent", padding: 6 }}>
+            <X size={18} />
+          </button>
+        </div>
+        <div className="modal-body">
+          {!result ? (
+            <>
+              <div style={{ padding: "10px 12px", background: "#f8fafc", borderRadius: 8, marginBottom: 16, fontSize: 12.5, color: "var(--text-secondary)", borderLeft: "3px solid #2563eb" }}>
+                💡 Aneks će automatski biti popunjen sa podacima zaposlenog i firme. Polja zaposlenog (vrsta ugovora, datum kraja, plata, pozicija) se automatski ažuriraju u bazi.
+              </div>
+
+              <div className="field-group" style={{ marginBottom: 12 }}>
+                <label className="field-label">Nova vrsta ugovora</label>
+                <select className="select" value={vrsta} onChange={(e) => setVrsta(e.target.value)} data-testid="aneks-vrsta">
+                  <option value="neodredjeno">Produži na neodređeno</option>
+                  <option value="odredjeno">Produži na određeno vrijeme</option>
+                </select>
+              </div>
+
+              {vrsta === "odredjeno" && (
+                <div className="field-group" style={{ marginBottom: 12 }}>
+                  <label className="field-label">Novi datum kraja ugovora</label>
+                  <input type="date" className="input" value={datum} onChange={(e) => setDatum(e.target.value)} data-testid="aneks-datum" />
+                </div>
+              )}
+
+              <div className="field-group" style={{ marginBottom: 12 }}>
+                <label className="field-label">
+                  Nova neto plata (€) — <span style={{ fontWeight: 400, color: "var(--text-tertiary)" }}>opciono</span>
+                </label>
+                <input
+                  type="number" className="input" placeholder={`Trenutna: ${employee.plata_neto || 0} €`}
+                  value={plata} onChange={(e) => setPlata(e.target.value)} data-testid="aneks-plata"
+                />
+              </div>
+
+              <div className="field-group" style={{ marginBottom: 12 }}>
+                <label className="field-label">
+                  Nova pozicija / radno mjesto — <span style={{ fontWeight: 400, color: "var(--text-tertiary)" }}>opciono</span>
+                </label>
+                <input
+                  className="input" placeholder={`Trenutna: ${employee.pozicija || "—"}`}
+                  value={pozicija} onChange={(e) => setPozicija(e.target.value)}
+                />
+              </div>
+
+              <div className="field-group">
+                <label className="field-label">
+                  Razlog izmjene — <span style={{ fontWeight: 400, color: "var(--text-tertiary)" }}>opciono</span>
+                </label>
+                <textarea
+                  className="textarea" rows={2}
+                  placeholder="npr. Produžetak ugovora zbog povećanog obima posla..."
+                  value={razlog} onChange={(e) => setRazlog(e.target.value)}
+                />
+              </div>
+
+              {error && (
+                <div style={{ marginTop: 14, padding: "10px 12px", background: "var(--danger-bg)", color: "var(--danger-text)", borderRadius: 6, fontSize: 13 }}>
+                  {error}
+                </div>
+              )}
+            </>
+          ) : (
+            <div style={{ textAlign: "center", padding: "12px 0" }}>
+              <div style={{ width: 60, height: 60, margin: "0 auto 16px", borderRadius: 12, background: "var(--success-bg)", color: "var(--success-text)", display: "flex", alignItems: "center", justifyContent: "center" }}>
+                <Check size={28} weight="bold" />
+              </div>
+              <div style={{ fontFamily: "Cabinet Grotesk", fontSize: 18, fontWeight: 700, marginBottom: 6 }}>
+                Aneks {result.aneks_broj} je spreman!
+              </div>
+              <div style={{ fontSize: 13, color: "var(--text-tertiary)", marginBottom: 20 }}>
+                Podaci zaposlenog su ažurirani u bazi.
+              </div>
+              <div style={{ display: "flex", gap: 8, justifyContent: "center", flexWrap: "wrap" }}>
+                <a
+                  href={`${API}/documents/preview/${result.pdf_filename}?token=${getToken()}`}
+                  target="_blank" rel="noopener noreferrer"
+                  className="btn btn-primary btn-lg"
+                  data-testid="aneks-open-pdf"
+                >
+                  <Printer size={16} /> Otvori PDF
+                </a>
+                <a
+                  href={`${API}/documents/download/${result.filename}?token=${getToken()}`}
+                  className="btn btn-secondary btn-lg"
+                  download
+                >
+                  <DownloadSimple size={16} /> Word
+                </a>
+              </div>
+            </div>
+          )}
+        </div>
+        {!result && (
+          <div className="modal-footer">
+            <button className="btn btn-secondary" onClick={onClose}>Odustani</button>
+            <button
+              className="btn btn-primary"
+              onClick={generate}
+              disabled={generating || (vrsta === "odredjeno" && !datum)}
+              data-testid="aneks-generate-btn"
+            >
+              {generating ? <Spinner size={14} className="spin" /> : <Sparkle size={14} />}
+              Generiši aneks
+            </button>
+          </div>
+        )}
+        {result && (
+          <div className="modal-footer">
+            <button className="btn btn-primary" onClick={onDone}>Završi</button>
+          </div>
+        )}
       </div>
     </div>
   );
