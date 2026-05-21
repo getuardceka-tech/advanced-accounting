@@ -1340,6 +1340,62 @@ def _build_replacements(company: dict, employee: Optional[dict], agency: dict, c
             except Exception:
                 pass
     
+    # "Zahtjev iz kaznene evidencije za fizičko lice" → ako je employee_id naveden,
+    # SUBJEKT je taj zaposleni (a NE direktor firme).
+    if "kaznene evidencije fizicko" in tname_lower and employee and emp_full:
+        emp_parts = emp_full.strip().split(maxsplit=1)
+        emp_first = emp_parts[0] if emp_parts else ""
+        emp_last = emp_parts[1] if len(emp_parts) > 1 else ""
+        if emp_first and emp_last:
+            # Override direktor mappings za ovaj specifičan šablon
+            repl["VESEL"] = emp_first
+            repl["SUMA"] = emp_last
+            repl["VESEL SUMA"] = emp_full
+        # Adresa zaposlenog umjesto direktora
+        emp_adresa = employee.get("adresa", "")
+        if emp_adresa:
+            repl["VLADIMIR BB. ULCINJ 85366"] = emp_adresa
+            repl["VLADIMIR BB"] = emp_adresa
+        # JMBG zaposlenog
+        if emp_jmbg:
+            repl["3004985220014"] = emp_jmbg
+    
+    # "Prijava zanatstva" → label-anchored replacements za polja sa blank-line vrijednostima
+    # (pdf2docx je sačuvao layout ali izbrisao dummy vrijednosti; popunjavamo nakon naziva polja)
+    if "prijava_zanatstva" in tname_lower or "prijava zanatstva" in tname_lower:
+        # 1.1. Naziv/ime/Emri _____...
+        if company_naziv:
+            repl["1.1. Naziv/ime/Emri ________________________________________________________________"] = \
+                f"1.1. Naziv/ime/Emri  {company_naziv}"
+        # Sjedište + adresa
+        if company_adresa or company_grad:
+            sj_adr = f"{company_grad or 'Ulcinj'}  adresa: {company_adresa}" if company_adresa else (company_grad or "")
+            repl["a. Sjedište/Selia _____________________ adresa__________________________________________"] = \
+                f"a. Sjedište/Selia  {company_grad}  adresa: {company_adresa or '____'}"
+            repl["3.1. Sjedište/Selia________________________ adresa:______________________________________________"] = \
+                f"3.1. Sjedište/Selia  {company_grad}  adresa: {company_adresa or '____'}"
+        # 1.4. Šifra djelatnosti
+        if company.get("sifra_djelatnosti"):
+            repl["1.4. Šifra djelatnosti/Shifra e aktivitetit \t________________________________________"] = \
+                f"1.4. Šifra djelatnosti/Shifra e aktivitetit \t{company['sifra_djelatnosti']}"
+        # 1.5. Ime lica ovlašćenog za zastupanje (direktor)
+        if direktor_ime and direktor_ime != "________________":
+            repl["1.5.Ime lica ovlašćenog za zastupanje/Emri i personit të autorizuar për përfaqësim _____________________"] = \
+                f"1.5.Ime lica ovlašćenog za zastupanje/Emri i personit të autorizuar për përfaqësim  {direktor_ime}"
+        # 1.6. Žiro račun
+        if company.get("ziro_racun"):
+            repl["1.6.Žiro račun/i poslovna banka/Llogaria rrjedhëse dhe banka afariste ______________________________"] = \
+                f"1.6.Žiro račun/i poslovna banka/Llogaria rrjedhëse dhe banka afariste  {company['ziro_racun']}"
+        # 1.7. PIB
+        if company_pib:
+            repl["1.7. Poreski identifikacioni broj/Numri identifikues tatimor ______________________________________"] = \
+                f"1.7. Poreski identifikacioni broj/Numri identifikues tatimor  {company_pib}"
+        # 1.8. Telefon/email
+        company_tel_val = company.get("telefon") or agency.get("telefon", "")
+        if company_tel_val:
+            repl["1.8.Telefon - i, fax - i, e-mail ______________________________________________________________"] = \
+                f"1.8.Telefon - i, fax - i, e-mail  {company_tel_val}"
+    
     return repl
 
 
@@ -1416,7 +1472,20 @@ def _docx_replace(doc: Document, replacements: Dict[str, str]):
     
     for table in doc.tables:
         for row in table.rows:
-            for cell in row.cells:
+            try:
+                cells = list(row.cells)
+            except Exception:
+                # pdf2docx output može imati malformirane tc grid (vertical merge / missing tc).
+                # Padaj na sirovo iteriranje raw <w:tc> elemenata.
+                ns = '{http://schemas.openxmlformats.org/wordprocessingml/2006/main}'
+                cells = []
+                from docx.table import _Cell
+                for tc in row._tr.findall(f'{ns}tc'):
+                    try:
+                        cells.append(_Cell(tc, table))
+                    except Exception:
+                        pass
+            for cell in cells:
                 for paragraph in cell.paragraphs:
                     replace_in_paragraph(paragraph)
     

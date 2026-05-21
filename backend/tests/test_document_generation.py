@@ -144,7 +144,19 @@ def _read_docx_text(filename):
         parts.append(p.text)
     for tbl in doc.tables:
         for row in tbl.rows:
-            for cell in row.cells:
+            try:
+                cells = list(row.cells)
+            except Exception:
+                # malformed pdf2docx table - fall back to raw <w:tc> iteration
+                ns = '{http://schemas.openxmlformats.org/wordprocessingml/2006/main}'
+                from docx.table import _Cell
+                cells = []
+                for tc in row._tr.findall(f'{ns}tc'):
+                    try:
+                        cells.append(_Cell(tc, tbl))
+                    except Exception:
+                        pass
+            for cell in cells:
                 for p in cell.paragraphs:
                     parts.append(p.text)
     return "\n".join(parts)
