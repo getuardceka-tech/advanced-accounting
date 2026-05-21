@@ -159,7 +159,7 @@ export default function Documents() {
                     {t.name}
                   </div>
                   <div style={{ fontSize: 11.5, color: "var(--text-tertiary)" }}>
-                    {isDocx ? "Auto-popunjavanje dostupno" : t.extension.toUpperCase().replace(".", "") + " — samo preuzimanje"}
+                    {isDocx ? "Auto-popunjavanje dostupno" : (t.extension === ".pdf" ? "PDF za štampu (originalni obrazac)" : t.extension.toUpperCase().replace(".", "") + " — samo preuzimanje")}
                   </div>
                 </div>
                 {isDocx ? (
@@ -170,6 +170,28 @@ export default function Documents() {
                   >
                     <Sparkle size={13} /> Generiši
                   </button>
+                ) : t.extension === ".pdf" ? (
+                  <div style={{ display: "flex", gap: 6, marginTop: "auto" }}>
+                    <a
+                      href={`${API}/documents/preview/${t.filename}?token=${getToken()}`}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="btn btn-primary btn-sm"
+                      style={{ flex: 1 }}
+                      onClick={(e) => e.stopPropagation()}
+                      data-testid={`preview-template-${t.filename}`}
+                    >
+                      <Printer size={13} /> Otvori za štampu
+                    </a>
+                    <a
+                      href={`${API}/documents/download/${t.filename}?token=${getToken()}`}
+                      className="btn btn-secondary btn-sm"
+                      onClick={(e) => e.stopPropagation()}
+                      title="Preuzmi PDF"
+                    >
+                      <DownloadSimple size={13} />
+                    </a>
+                  </div>
                 ) : (
                   <a
                     href={`${API}/documents/download/${t.filename}?token=${getToken()}`}

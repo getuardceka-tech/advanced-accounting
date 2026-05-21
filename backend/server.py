@@ -879,10 +879,34 @@ def _build_replacements(company: dict, employee: Optional[dict], agency: dict, c
         if company_adresa:
             repl[sample_addr] = full_adresa
     
-    # Sample reg numbers
+    # Sample reg numbers + datum rješenja CRPS
     for sample_reg in SAMPLE_REG_NUMBERS:
         if company.get("maticni_broj"):
             repl[sample_reg] = company["maticni_broj"]
+    # Datum rješenja CRPS - ako firma ima, koristi, inače blank
+    repl["17.12.2025"] = company.get("datum_registracije") or "____________"
+    
+    # Šifra djelatnosti - sample "4711" iz Prijave trgovine
+    if company.get("sifra_djelatnosti"):
+        repl["4711"] = company["sifra_djelatnosti"]
+    
+    # Žiro račun - sample iz Prijave trgovine
+    if company.get("ziro_racun"):
+        repl["535-26292-64"] = company["ziro_racun"]
+    
+    # Telefon - prvo company, ako nema onda agency
+    company_tel = company.get("telefon") or agency.get("telefon", "")
+    if company_tel:
+        repl["+382 69 172 204"] = company_tel
+        repl["069 172 204"] = company_tel
+    
+    # Email - prvo company, ako nema onda agency
+    company_email = company.get("email") or agency.get("email", "")
+    if company_email:
+        repl["Advanced.acct@hotmail.com"] = company_email
+    
+    # Datum rođenja direktora - ako firma ima, ostaje 30.04.1985 za korisnika da popuni ručno
+    # (Nemamo to polje u modelu trenutno)
     
     # Agency name + PIB + director - always replace samples with current agency data
     agency_naziv = agency.get("naziv", "")
@@ -1311,7 +1335,9 @@ async def generate_aneks(req: AneksRequest, username: str = Depends(get_current_
 
 @api_router.get("/documents/preview/{filename}")
 async def preview_document(filename: str, token: Optional[str] = None):
-    """Vraća PDF inline u browseru (za prikaz/štampu bez downloada)."""
+    """Vraća PDF inline u browseru (za prikaz/štampu bez downloada).
+    Podržava i generisane dokumente i izvorne PDF/DOCX šablone iz templates foldera.
+    """
     if token:
         try:
             jwt.decode(token, JWT_SECRET, algorithms=[JWT_ALGORITHM])
@@ -1319,16 +1345,29 @@ async def preview_document(filename: str, token: Optional[str] = None):
             raise HTTPException(401, "Neispravan token")
     
     safe_name = os.path.basename(filename)
+    
+    # 1. Try GENERATED folder
     file_path = GENERATED_DIR / safe_name
     
-    # If PDF doesn't exist, try to generate it on the fly from sibling .docx
+    # 2. If PDF doesn't exist there, try to generate from sibling .docx (auto-create PDF)
     if not file_path.exists() and safe_name.endswith('.pdf'):
         docx_sibling = GENERATED_DIR / safe_name.replace('.pdf', '.docx')
         if docx_sibling.exists():
             _convert_to_pdf(docx_sibling)
     
+    # 3. If still not found, try TEMPLATES folder (for source PDF/DOCX templates)
     if not file_path.exists():
-        raise HTTPException(404, "PDF nije pronađen")
+        file_path = TEMPLATES_DIR / safe_name
+        
+        # If a .docx template, generate PDF copy in TEMPLATES folder (cached)
+        if not file_path.exists() and safe_name.endswith('.pdf'):
+            docx_in_templates = TEMPLATES_DIR / safe_name.replace('.pdf', '.docx')
+            if docx_in_templates.exists():
+                _convert_to_pdf(docx_in_templates)
+                file_path = TEMPLATES_DIR / safe_name
+    
+    if not file_path.exists():
+        raise HTTPException(404, "Dokument nije pronađen")
     
     return FileResponse(
         path=str(file_path),
