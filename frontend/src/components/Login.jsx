@@ -31,14 +31,14 @@ export default function Login() {
       <div className="login-side">
         <div className="flex items-center gap-2.5">
           <div className="sidebar-brand-mark" style={{ background: "white", color: "#0f172a" }}>
-            GC
+            AA
           </div>
           <div className="sidebar-brand-text">
             <span className="sidebar-brand-name" style={{ color: "white" }}>
-              Getuard Cekoviq
+              Advanced Accounting
             </span>
             <span className="sidebar-brand-sub" style={{ color: "#94a3b8" }}>
-              Računovodstvena agencija
+              Agencija za računovodstvo · Ulcinj
             </span>
           </div>
         </div>
@@ -88,7 +88,7 @@ export default function Login() {
         </div>
 
         <div style={{ color: "#64748b", fontSize: 12 }}>
-          © 2026 Getuard Cekoviq · Ulcinj, Crna Gora
+          © 2026 Advanced Accounting · Ulcinj, Crna Gora
         </div>
       </div>
 

@@ -61,15 +61,15 @@ class LoginResponse(BaseModel):
 class Agency(BaseModel):
     model_config = ConfigDict(extra="ignore")
     id: str = Field(default_factory=lambda: str(uuid.uuid4()))
-    naziv: str = "GETUARD CEKOVIQ S.P."
+    naziv: str = "ADVANCED ACCOUNTING"
     adresa: str = "Brajša bb, Ulcinj"
     grad: str = "Ulcinj"
     pib: str = ""
     pdv_broj: str = ""
     ziro_racun: str = ""
     banka: str = ""
-    telefon: str = ""
-    email: str = ""
+    telefon: str = "+382 69 172 204"
+    email: str = "Advanced.acct@hotmail.com"
     direktor_ime: str = "GETUARD CEKOVIQ"
     direktor_jmbg: str = "0806994223008"
     djelatnost: str = "Računovodstvene usluge"
@@ -599,11 +599,167 @@ def _format_date(date_str: str = "") -> str:
     return datetime.now(timezone.utc).strftime("%d.%m.%Y")
 
 
+# ============== SAMPLE VALUES MAPPING ==============
+# Šabloni od korisnika sadrže konkretne podatke nekoliko "primjer" firmi.
+# Kada se generiše dokument, sve te sample vrijednosti se zamijenjuju
+# podacima izabrane firme/zaposlenog/agencije.
+
+# Sample firme koje se pojavljuju u šablonima (sve se mapiraju na izabranu firmu):
+SAMPLE_COMPANY_NAMES = [
+    # Različite varijante kako se firma "CULT ULCINJ" pojavljuje u šablonima
+    'DRUŠTVO SA OGRANIČENOM ODGOVORNOŠĆU "CULT ULCINJ" ZA TRGOVINU, UGOSTITELJSTVO I USLUGE EXPORT-IMPORT- ULCINJ',
+    'DRUŠTVO SA OGRANIČENOM ODGOVORNOŠĆU "CULT ULCINJ" ZA TRGOVINU, UGOSTITELJSTVO I USLUGE "EXPORT-IMPORT" ULCINJ',
+    "DOO CULT ULCINJ",
+    "CULT ULCINJ",
+    # MARINI GROUP
+    'DRUŠTVO SA OGRANIČENOM ODGOVORNOŠĆU "MARINI GROUP" ULCINJ',
+    "MARINI GROUP",
+    # SUMA FRESH MARKET
+    'DRUŠTVO SA OGRANIČENOM ODGOVORNOŠĆU "SUMA FRESH MARKET" - ULCINJ',
+    'DRUŠTVO SA OGRANIČENOM ODGOVORNOŠĆU  "SUMA FRESH MARKET" ULCINJ',
+    'DRUŠTVO SA OGRANIČENOM ODGOVORNOŠĆU "SUMA FRESH MARKET" ULCINJ',
+    "SUMA FRESH MARKET",
+    # GONI COMPANY
+    'DOO "GONI COMPANY" ZA PROIZVODNJU, PROMET I USLUGE, EXPORT - IMPORT ULCINJ',
+    "GONI COMPANY",
+    # SUR AFRODITA
+    'PREDUZETNIK SINANI  ALIRAMI KOJI OBAVLJA  PRIVREDNU DJELATNOST  "SUR AFRODITA" ULCINJ',
+    "SUR AFRODITA",
+    # DARTI
+    '"DARTI" D.O.O. ULCINJ',
+    "DARTI",
+]
+
+# Sample PIBs koje treba zamijeniti (sa izabranom firmom)
+SAMPLE_PIBS = ["03801969", "03796841", "03807851", "03663108", "1906972223002"]
+
+# Sample direktori (zamjenjuju se sa company.direktor_ime)
+SAMPLE_DIRECTORS = [
+    "JUSUF ELEZAGIĆ", "JUSUF ELEZAGIC",
+    "ARIAN MARINI",
+    "VESEL SUMA",
+    "ALIRAMI SINANI", "SINANI ALIRAMI",
+]
+
+# Sample JMBG direktora
+SAMPLE_DIRECTOR_JMBGS = [
+    "0303987220166",
+    "3105998220014",
+    "3004985220014",
+]
+
+# Sample adrese firmi
+SAMPLE_COMPANY_ADDRESSES = [
+    "Ulcinj, Ul.Vellezerit Frasheri bb.",
+    "UL.VELLEZERIT FRASHERI BB ULCINJ",
+    "VELLEZERIT FRASHERI BB",
+    "VELIKA PLAZA BB - ULCINJ",
+    "VLADIMIR BB",
+    "VLADIMIR   bb",
+    "VLADIMIR BB ULCINJ",
+]
+
+# Sample matični/registracijski brojevi
+SAMPLE_REG_NUMBERS = ["5-1354657/001"]
+
+# Sample agency data (UVIJEK se zamjenjuju agencijskim podacima iz postavki)
+SAMPLE_AGENCY_DIRECTOR_NAMES = ["CEKOVIQ GETUARD", "GETUARD CEKOVIQ", "GETUARD CEKOVIQ"]
+SAMPLE_AGENCY_JMBGS = ["0806994223008"]
+SAMPLE_AGENCY_ADDRESSES = ["Ulcinja, Brajša bb.", "Brajša bb."]
+
+# Sample zaposleni (zamjenjuju se izabranim zaposlenim)
+SAMPLE_EMPLOYEE_NAMES = [
+    "ALEKSANDER CUROVIĆ", "ALEKSANDER CUROVIC",
+    "RENATO JAKU",
+]
+SAMPLE_EMPLOYEE_JMBGS = ["1411008223029", "039066621"]
+SAMPLE_EMPLOYEE_POSITIONS = ["KONOBAR", "pomoćni radnik u gradjevinu", "pomocni radnik u gradjevinu"]
+
+
 def _build_replacements(company: dict, employee: Optional[dict], agency: dict, custom: dict) -> Dict[str, str]:
     """Gradi dictionary svih mogućih placeholdera za zamjenu."""
     today = datetime.now(timezone.utc)
     
-    repl = {
+    company_naziv = company.get("naziv", "")
+    company_pib = company.get("pib", "")
+    company_grad = company.get("grad", "") or "Ulcinj"
+    company_adresa = company.get("adresa", "")
+    full_adresa = f"{company_adresa}, {company_grad}" if company_adresa and company_grad else (company_adresa or company_grad)
+    
+    direktor_ime = company.get("direktor_ime", "") or "________________"
+    direktor_jmbg = company.get("direktor_jmbg", "") or "________________"
+    
+    agency_director = agency.get("direktor_ime", "")
+    agency_jmbg = agency.get("direktor_jmbg", "")
+    agency_adresa = f"{agency.get('adresa','')}".strip() or "Brajša bb."
+    
+    emp_full = ""
+    emp_jmbg = ""
+    emp_pozicija = ""
+    emp_grad = ""
+    if employee:
+        emp_full = f"{employee.get('ime','')} {employee.get('prezime','')}".strip()
+        emp_jmbg = employee.get("jmbg", "")
+        emp_pozicija = employee.get("pozicija", "")
+        emp_grad = employee.get("grad", "") or "Ulcinju"
+    
+    repl = {}
+    
+    # ========== SMART REPLACEMENT - Sample → Real ==========
+    # Sample company names → real company
+    for sample_name in SAMPLE_COMPANY_NAMES:
+        if sample_name and company_naziv:
+            repl[sample_name] = company_naziv
+    
+    # Sample PIBs → real PIB
+    for sample_pib in SAMPLE_PIBS:
+        if company_pib:
+            repl[sample_pib] = company_pib
+    
+    # Sample directors → real director
+    for sample_dir in SAMPLE_DIRECTORS:
+        if direktor_ime and direktor_ime != "________________":
+            repl[sample_dir] = direktor_ime
+    
+    # Sample director JMBGs → real
+    for sample_jmbg in SAMPLE_DIRECTOR_JMBGS:
+        if direktor_jmbg and direktor_jmbg != "________________":
+            repl[sample_jmbg] = direktor_jmbg
+    
+    # Sample addresses → real
+    for sample_addr in SAMPLE_COMPANY_ADDRESSES:
+        if company_adresa:
+            repl[sample_addr] = full_adresa
+    
+    # Sample reg numbers
+    for sample_reg in SAMPLE_REG_NUMBERS:
+        if company.get("maticni_broj"):
+            repl[sample_reg] = company["maticni_broj"]
+    
+    # Agency director - always replace samples with current agency data
+    for sample_ag in SAMPLE_AGENCY_DIRECTOR_NAMES:
+        if agency_director:
+            repl[sample_ag] = agency_director
+    for sample_ag_jmbg in SAMPLE_AGENCY_JMBGS:
+        if agency_jmbg:
+            repl[sample_ag_jmbg] = agency_jmbg
+    for sample_ag_addr in SAMPLE_AGENCY_ADDRESSES:
+        if agency_adresa:
+            repl[sample_ag_addr] = agency_adresa
+    
+    # Employee samples → real employee (only if selected)
+    if employee and emp_full:
+        for sample_emp in SAMPLE_EMPLOYEE_NAMES:
+            repl[sample_emp] = emp_full
+        for sample_emp_jmbg in SAMPLE_EMPLOYEE_JMBGS:
+            if emp_jmbg:
+                repl[sample_emp_jmbg] = emp_jmbg
+        if emp_pozicija:
+            for sample_pos in SAMPLE_EMPLOYEE_POSITIONS:
+                repl[sample_pos] = emp_pozicija
+    
+    # ========== ALSO support [PLACEHOLDER] syntax for future templates ==========
+    repl.update({
         # FIRMA - klijent
         "[NAZIV_FIRME]": company.get("naziv", ""),
         "[NAZIV_FIRME_SKRACENO]": company.get("naziv_skraceni") or company.get("naziv", ""),
@@ -637,7 +793,7 @@ def _build_replacements(company: dict, employee: Optional[dict], agency: dict, c
         "[GODINA]": str(today.year),
         "[MJESEC]": str(today.month),
         "[DAN]": str(today.day),
-    }
+    })
     
     if employee:
         repl.update({
@@ -673,8 +829,11 @@ def _docx_replace(doc: Document, replacements: Dict[str, str]):
         # Combine all runs text
         full_text = ''.join(run.text for run in paragraph.runs)
         new_text = full_text
-        for key, val in replacements.items():
-            if key in new_text:
+        # Zamjene idu od najduže ka najkraćoj (da duži pattern ne bude pojeden kraćim)
+        sorted_keys = sorted(replacements.keys(), key=len, reverse=True)
+        for key in sorted_keys:
+            val = replacements[key]
+            if key and key in new_text:
                 new_text = new_text.replace(key, val)
         
         if new_text != full_text and paragraph.runs:

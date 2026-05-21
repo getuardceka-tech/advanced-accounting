@@ -39,10 +39,10 @@ export default function Layout() {
     <div className="app-shell">
       <aside className="sidebar" data-testid="sidebar">
         <div className="sidebar-brand">
-          <div className="sidebar-brand-mark">GC</div>
+          <div className="sidebar-brand-mark">AA</div>
           <div className="sidebar-brand-text">
             <span className="sidebar-brand-name">
-              {agency?.naziv?.split(" ")[0] || "Getuard"}
+              Advanced Accounting
             </span>
             <span className="sidebar-brand-sub">Agencija</span>
           </div>
