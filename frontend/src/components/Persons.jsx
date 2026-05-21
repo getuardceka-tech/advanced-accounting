@@ -10,7 +10,8 @@ const empEmpty = {
   company_id: "",
   ime: "", prezime: "", jmbg: "", licna_karta: "", adresa: "", grad: "",
   pozicija: "", strucna_sprema: "", plata_bruto: 0, plata_neto: 0,
-  datum_pocetka: "", datum_kraja: "", vrsta_ugovora: "neodredjeno", radno_vrijeme: "puno",
+  datum_pocetka: "", datum_kraja: "", datum_prestanka: "",
+  vrsta_ugovora: "neodredjeno", radno_vrijeme: "puno",
   telefon: "", email: "", aktivan: true,
 };
 
@@ -281,6 +282,7 @@ function PersonModal({ form, setForm, editing, companies, onSave, onClose, savin
             {form.vrsta_ugovora === "odredjeno" && (
               <Field label="Datum kraja ugovora (određeno)" value={form.datum_kraja} onChange={(v) => u("datum_kraja", v)} type="date" testid="person-datum-kraja" />
             )}
+            <Field label="Datum prestanka rada (za odjavu)" value={form.datum_prestanka} onChange={(v) => u("datum_prestanka", v)} type="date" testid="person-datum-prestanka" />
             <Field label="Telefon" value={form.telefon} onChange={(v) => u("telefon", v)} />
             <Field label="Email" value={form.email} onChange={(v) => u("email", v)} />
           </div>

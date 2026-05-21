@@ -139,6 +139,7 @@ class Employee(BaseModel):
     plata_neto: float = 0.0
     datum_pocetka: str = ""
     datum_kraja: str = ""
+    datum_prestanka: str = ""  # datum prestanka radnog odnosa (odjava)
     vrsta_ugovora: str = "neodredjeno"  # odredjeno/neodredjeno
     radno_vrijeme: str = "puno"  # puno/skraceno
     telefon: str = ""
@@ -160,6 +161,7 @@ class EmployeeCreate(BaseModel):
     plata_neto: Optional[float] = 0.0
     datum_pocetka: Optional[str] = ""
     datum_kraja: Optional[str] = ""
+    datum_prestanka: Optional[str] = ""
     vrsta_ugovora: Optional[str] = "neodredjeno"
     radno_vrijeme: Optional[str] = "puno"
     telefon: Optional[str] = ""
@@ -1006,6 +1008,55 @@ def _build_replacements(company: dict, employee: Optional[dict], agency: dict, c
             # UGOVOR O DOPUNSKOM RADU: "iznos od 300.00 eura"
             repl["iznos od 300.00 eura"] = f"iznos od {plata_str} eura"
             repl["300.00 eura"] = f"{plata_str} eura"
+        
+        # Datum prestanka radnog odnosa (odjava)
+        emp_prestanak = employee.get("datum_prestanka", "")
+        formatted_prestanak = ""
+        if emp_prestanak:
+            try:
+                dt = datetime.fromisoformat(emp_prestanak.replace('Z', ''))
+                formatted_prestanak = dt.strftime("%d.%m.%Y")
+            except Exception:
+                formatted_prestanak = emp_prestanak
+            repl["[DATUM_PRESTANKA]"] = formatted_prestanak
+            # Datum prestanka u rješenju o prestanku i obrazloženju za kašnjenje odjave
+            # Sample datumi koji predstavljaju prestanak radnog odnosa
+            repl["[DATUM_ODJAVE]"] = formatted_prestanak
+        
+        # POJEDINAČNO OBAVJESTENJE / ostali blank zaposlenog placeholderi
+        for blank_zap in [
+            "Zaposleni:________________________",
+            "Zaposleni: ________________________",
+            "Zaposlenom  __________________",
+            "Zaposlenom __________________",
+        ]:
+            repl[blank_zap] = f"Zaposleni: {emp_full}"
+        
+        if emp_jmbg:
+            for blank_jmbg in [
+                "JMB: _____________________",
+                "JMB:_____________________",
+                "JMBG: _____________________",
+            ]:
+                repl[blank_jmbg] = f"JMB: {emp_jmbg}"
+        
+        if emp_pozicija:
+            for blank_pos in [
+                "Radno mjesto: ____________________",
+                "Radno mjesto:____________________",
+                "radno mjesto:__________",
+                "radno mjesto: __________",
+            ]:
+                repl[blank_pos] = f"Radno mjesto: {emp_pozicija}"
+            # Dodatne pozicije iz RJESENJE O PRESTANKU
+            repl["pomocni radnik"] = emp_pozicija.lower() if emp_pozicija else "pomocni radnik"
+        
+        # Datum prestanka radnog odnosa - sample datumi u Rješenju o prestanku
+        # ako je upisan datum_prestanka, koristi taj; inače današnji datum
+        prestanak_date = formatted_prestanak if formatted_prestanak else today_str
+        # Sample datumi prestanka u šablonima
+        repl["31.03.2026"] = prestanak_date
+        repl["28.02.2026"] = prestanak_date
     
     # Brisanje specifičnih datuma/periode/dana - klijent ručno popuni
     for sample_period, blank in SAMPLE_PERIODS_TO_BLANK.items():
@@ -1017,6 +1068,63 @@ def _build_replacements(company: dict, employee: Optional[dict], agency: dict, c
     repl["Ulcinj, 01.01.2026 god."] = f"{header_city}, {today_str} god."
     repl["Ulcinj, 02.02.2026 god."] = f"{header_city}, {today_str} god."
     repl["Ulcinj, 02.02.2026"] = f"{header_city}, {today_str}"
+    repl["Ulcinj, 16.02.2026"] = f"{header_city}, {today_str}"
+    repl["Ulcinj, 16.02.2026 godine"] = f"{header_city}, {today_str} godine"
+    repl["U VLADIMIR, dana 01.03.2026  godine"] = f"U {header_city}, dana {today_str} godine"
+    repl["U VLADIMIR, dana 01.03.2026 godine"] = f"U {header_city}, dana {today_str} godine"
+    repl["dana 01.03.2026"] = f"dana {today_str}"
+    # Standalone datumi koji su sample za današnji datum
+    repl[" 01.03.2026 god."] = f" {today_str} god."
+    repl[" 16.02.2026"] = f" {today_str}"
+    repl["04.05.2026"] = today_str  # punomocje token
+    
+    # Brojač broja dokumenta - ostavi blank za korisnika
+    repl["BR:10/2026"] = "BR: ___/2026"
+    
+    # ========== BLANK PLACEHOLDERS (underscore lines) ==========
+    # Različite varijante "NAZIV FIRME:_________"
+    if company_naziv:
+        for blank_naziv in [
+            "NAZIV FIRME:____________________________",
+            "NAZIV FIRME: ____________________________",
+            "Naziv firme:_________________",
+            "Naziv firme: _________________",
+        ]:
+            repl[blank_naziv] = f"NAZIV FIRME: {company_naziv}"
+    
+    if company_pib:
+        for blank_pib in [
+            "PIB: _______________________",
+            "PIB:_______________________",
+            "PIB: ______________________",
+        ]:
+            repl[blank_pib] = f"PIB: {company_pib}"
+    
+    if company_adresa:
+        full_adr = f"{company_adresa}, {company_grad}" if company_adresa and company_grad else (company_adresa or company_grad)
+        for blank_adr in [
+            "Adresa: _____________________",
+            "Adresa:_____________________",
+            "Adresa: Ulcinj",
+        ]:
+            repl[blank_adr] = f"Adresa: {full_adr}"
+    
+    # Datum današnji za blank polje "Datum: ___"
+    for blank_date in [
+        "Datum: ________________",
+        "Datum:________________",
+        "Datum: _____________________",
+        "Datum:_____________________",
+    ]:
+        repl[blank_date] = f"Datum: {today_str}"
+    
+    # Broj dokumenta - blank ostaje (korisnik popuni)
+    # Ali sample iz odluke o popustu i sl. ostaje
+    
+    # Žiro račun u ODLUCI O PODIZANJU NOVCA
+    if company.get("ziro_racun"):
+        repl["sa žiro računa  društva  broj:_______________"] = f"sa žiro računa društva broj: {company['ziro_racun']}"
+        repl["broj:_______________"] = f"broj: {company['ziro_racun']}"
     
     # ========== ALSO support [PLACEHOLDER] syntax for future templates ==========
     repl.update({
