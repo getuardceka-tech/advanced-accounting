@@ -1,0 +1,409 @@
+import { useEffect, useState } from "react";
+import { useNavigate, useParams } from "react-router-dom";
+import {
+  CaretLeft, Plus, PencilSimple, Trash, X, Check, Spinner, FileText,
+  Users, Buildings, DownloadSimple,
+} from "@phosphor-icons/react";
+import api, { getToken, API } from "@/lib/api";
+
+const empEmpty = {
+  ime: "", prezime: "", jmbg: "", licna_karta: "", adresa: "", grad: "",
+  pozicija: "", strucna_sprema: "", plata_bruto: 0, plata_neto: 0,
+  datum_pocetka: "", vrsta_ugovora: "neodredjeno", radno_vrijeme: "puno",
+  telefon: "", email: "", aktivan: true,
+};
+
+export default function CompanyDetail() {
+  const { id } = useParams();
+  const navigate = useNavigate();
+  const [company, setCompany] = useState(null);
+  const [tab, setTab] = useState("podaci");
+  const [employees, setEmployees] = useState([]);
+  const [docs, setDocs] = useState([]);
+  const [empModalOpen, setEmpModalOpen] = useState(false);
+  const [empForm, setEmpForm] = useState(empEmpty);
+  const [editingEmp, setEditingEmp] = useState(null);
+  const [empSaving, setEmpSaving] = useState(false);
+  const [empError, setEmpError] = useState("");
+
+  const load = async () => {
+    try {
+      const [c, e, d] = await Promise.all([
+        api.get(`/companies/${id}`),
+        api.get(`/employees?company_id=${id}`),
+        api.get(`/documents?company_id=${id}`),
+      ]);
+      setCompany(c.data);
+      setEmployees(e.data);
+      setDocs(d.data);
+    } catch (err) {
+      console.error(err);
+    }
+  };
+
+  useEffect(() => { load(); }, [id]); // eslint-disable-line
+
+  const openEmpCreate = () => {
+    setEditingEmp(null);
+    setEmpForm(empEmpty);
+    setEmpError("");
+    setEmpModalOpen(true);
+  };
+
+  const openEmpEdit = (emp) => {
+    setEditingEmp(emp);
+    setEmpForm({ ...empEmpty, ...emp });
+    setEmpError("");
+    setEmpModalOpen(true);
+  };
+
+  const saveEmp = async () => {
+    if (!empForm.ime || !empForm.prezime) {
+      setEmpError("Ime i prezime su obavezni");
+      return;
+    }
+    setEmpSaving(true);
+    try {
+      const payload = { ...empForm, company_id: id, plata_bruto: Number(empForm.plata_bruto) || 0, plata_neto: Number(empForm.plata_neto) || 0 };
+      if (editingEmp) {
+        await api.put(`/employees/${editingEmp.id}`, payload);
+      } else {
+        await api.post(`/employees`, payload);
+      }
+      setEmpModalOpen(false);
+      load();
+    } catch (err) {
+      setEmpError(err.response?.data?.detail || "Greška pri snimanju");
+    } finally {
+      setEmpSaving(false);
+    }
+  };
+
+  const removeEmp = async (e) => {
+    if (!window.confirm(`Obrisati zaposlenog ${e.ime} ${e.prezime}?`)) return;
+    await api.delete(`/employees/${e.id}`);
+    load();
+  };
+
+  if (!company) {
+    return (
+      <div className="empty">
+        <Spinner size={28} className="spin" />
+        <div className="empty-text" style={{ marginTop: 12 }}>Učitavam firmu...</div>
+      </div>
+    );
+  }
+
+  return (
+    <div data-testid="company-detail-page">
+      <button
+        className="btn btn-ghost btn-sm"
+        onClick={() => navigate("/firme")}
+        style={{ marginBottom: 12 }}
+        data-testid="back-to-companies"
+      >
+        <CaretLeft size={14} /> Sve firme
+      </button>
+
+      <div className="page-header" style={{ marginBottom: 16 }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 16 }}>
+          <div
+            style={{
+              width: 56, height: 56, borderRadius: 10, background: "#0f172a", color: "white",
+              display: "flex", alignItems: "center", justifyContent: "center",
+              fontFamily: "Cabinet Grotesk", fontSize: 22, fontWeight: 700,
+            }}
+          >
+            {company.naziv?.[0]?.toUpperCase()}
+          </div>
+          <div>
+            <h1 className="page-title" style={{ marginBottom: 6 }}>{company.naziv}</h1>
+            <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
+              <span style={{ fontSize: 12.5, color: "var(--text-tertiary)", fontFamily: "JetBrains Mono, monospace" }}>
+                PIB {company.pib}
+              </span>
+              {company.pdv_obveznik && <span className="badge badge-blue">PDV obveznik</span>}
+              {company.ioppd_obveznik && <span className="badge badge-neutral">IOPPD</span>}
+              {!company.aktivna && <span className="badge badge-danger">Neaktivna</span>}
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div className="tabs">
+        {[
+          { id: "podaci", label: "Podaci", icon: Buildings },
+          { id: "zaposleni", label: `Zaposleni (${employees.length})`, icon: Users },
+          { id: "dokumenti", label: `Dokumenti (${docs.length})`, icon: FileText },
+        ].map((t) => {
+          const Icon = t.icon;
+          return (
+            <button
+              key={t.id}
+              className={`tab ${tab === t.id ? "active" : ""}`}
+              onClick={() => setTab(t.id)}
+              data-testid={`tab-${t.id}`}
+              style={{ display: "flex", alignItems: "center", gap: 6 }}
+            >
+              <Icon size={14} /> {t.label}
+            </button>
+          );
+        })}
+      </div>
+
+      {tab === "podaci" && (
+        <div className="card card-padded">
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 24 }}>
+            <InfoBlock title="Osnovni podaci" items={[
+              ["Pun naziv", company.naziv],
+              ["Skraćeni naziv", company.naziv_skraceni || "—"],
+              ["PIB", company.pib],
+              ["Matični broj", company.maticni_broj || "—"],
+              ["PDV broj", company.pdv_broj || "—"],
+              ["Djelatnost", company.djelatnost || "—"],
+              ["Šifra djelatnosti", company.sifra_djelatnosti || "—"],
+            ]} />
+            <InfoBlock title="Adresa i kontakt" items={[
+              ["Adresa", company.adresa || "—"],
+              ["Grad", company.grad || "—"],
+              ["Telefon", company.telefon || "—"],
+              ["Email", company.email || "—"],
+            ]} />
+            <InfoBlock title="Direktor" items={[
+              ["Ime i prezime", company.direktor_ime || "—"],
+              ["JMBG", company.direktor_jmbg || "—"],
+              ["Adresa", company.direktor_adresa || "—"],
+            ]} />
+            <InfoBlock title="Bankovni podaci" items={[
+              ["Žiro račun", company.ziro_racun || "—"],
+              ["Banka", company.banka || "—"],
+            ]} />
+          </div>
+          {company.napomena && (
+            <div style={{ marginTop: 24, padding: 14, background: "#f8fafc", borderRadius: 8, fontSize: 13 }}>
+              <div style={{ fontSize: 11, letterSpacing: "0.08em", textTransform: "uppercase", color: "var(--text-tertiary)", fontWeight: 600, marginBottom: 6 }}>
+                Napomena
+              </div>
+              {company.napomena}
+            </div>
+          )}
+        </div>
+      )}
+
+      {tab === "zaposleni" && (
+        <div>
+          <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 14, alignItems: "center" }}>
+            <div style={{ fontSize: 13, color: "var(--text-tertiary)" }}>
+              {employees.length} {employees.length === 1 ? "zaposleni" : "zaposlenih"}
+            </div>
+            <button className="btn btn-primary" onClick={openEmpCreate} data-testid="add-employee-btn">
+              <Plus size={14} /> Dodaj zaposlenog
+            </button>
+          </div>
+
+          {employees.length === 0 ? (
+            <div className="empty">
+              <div className="empty-icon"><Users size={24} /></div>
+              <div className="empty-title">Nema unijetih zaposlenih</div>
+              <div className="empty-text">Dodajte zaposlene da možete brže generisati ugovore i odluke.</div>
+              <button className="btn btn-primary" onClick={openEmpCreate}>
+                <Plus size={14} /> Dodaj prvog zaposlenog
+              </button>
+            </div>
+          ) : (
+            <div className="table-wrap">
+              <table className="table">
+                <thead>
+                  <tr>
+                    <th>Ime i prezime</th>
+                    <th>JMBG</th>
+                    <th>Pozicija</th>
+                    <th>Plata (€)</th>
+                    <th>Ugovor</th>
+                    <th style={{ width: 80 }}></th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {employees.map((e) => (
+                    <tr key={e.id} data-testid={`employee-row-${e.id}`}>
+                      <td>
+                        <div style={{ fontWeight: 500 }}>{e.ime} {e.prezime}</div>
+                        {e.adresa && <div style={{ fontSize: 11.5, color: "var(--text-tertiary)" }}>{e.adresa}</div>}
+                      </td>
+                      <td style={{ fontFamily: "JetBrains Mono, monospace", fontSize: 12.5 }}>{e.jmbg || "—"}</td>
+                      <td style={{ fontSize: 12.5 }}>{e.pozicija || "—"}</td>
+                      <td style={{ fontFamily: "JetBrains Mono, monospace", fontSize: 12.5 }}>
+                        {e.plata_bruto ? `${e.plata_bruto.toFixed(2)}` : "—"}
+                      </td>
+                      <td>
+                        <span className="badge badge-neutral">{e.vrsta_ugovora === "neodredjeno" ? "Neodređeno" : "Određeno"}</span>
+                      </td>
+                      <td>
+                        <div style={{ display: "flex", gap: 4, justifyContent: "flex-end" }}>
+                          <button onClick={() => openEmpEdit(e)} style={{ border: "none", background: "transparent", padding: 5, borderRadius: 4, color: "var(--text-secondary)", cursor: "pointer", display: "flex" }}>
+                            <PencilSimple size={15} />
+                          </button>
+                          <button onClick={() => removeEmp(e)} style={{ border: "none", background: "transparent", padding: 5, borderRadius: 4, color: "var(--danger-text)", cursor: "pointer", display: "flex" }}>
+                            <Trash size={15} />
+                          </button>
+                        </div>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </div>
+      )}
+
+      {tab === "dokumenti" && (
+        <div>
+          <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 14, alignItems: "center" }}>
+            <div style={{ fontSize: 13, color: "var(--text-tertiary)" }}>
+              {docs.length} dokumenata generisano za ovu firmu
+            </div>
+            <button className="btn btn-primary" onClick={() => navigate(`/dokumenti?company=${id}`)} data-testid="generate-doc-btn">
+              <FileText size={14} /> Generiši dokument
+            </button>
+          </div>
+
+          {docs.length === 0 ? (
+            <div className="empty">
+              <div className="empty-icon"><FileText size={24} /></div>
+              <div className="empty-title">Nema generisanih dokumenata</div>
+              <div className="empty-text">Generišite ugovor, odluku, obavještenje ili neki drugi dokument za ovu firmu.</div>
+              <button className="btn btn-primary" onClick={() => navigate(`/dokumenti?company=${id}`)}>
+                <FileText size={14} /> Generiši dokument
+              </button>
+            </div>
+          ) : (
+            <div className="table-wrap">
+              <table className="table">
+                <thead>
+                  <tr>
+                    <th>Dokument</th>
+                    <th>Zaposleni</th>
+                    <th>Datum</th>
+                    <th style={{ width: 60 }}></th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {docs.map((d) => (
+                    <tr key={d.id}>
+                      <td>
+                        <div style={{ fontWeight: 500, fontSize: 13 }}>{d.template?.replace(/\.[^.]+$/, "")}</div>
+                      </td>
+                      <td style={{ fontSize: 12.5 }}>{d.employee_naziv || "—"}</td>
+                      <td style={{ fontSize: 12.5 }}>{new Date(d.created_at).toLocaleString("sr-Latn-ME")}</td>
+                      <td>
+                        <a
+                          href={`${API}/documents/download/${d.filename}?token=${getToken()}`}
+                          style={{ color: "var(--accent)", display: "flex", padding: 4 }}
+                          title="Preuzmi"
+                        >
+                          <DownloadSimple size={15} />
+                        </a>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </div>
+      )}
+
+      {empModalOpen && (
+        <EmployeeModal
+          form={empForm}
+          setForm={setEmpForm}
+          editing={editingEmp}
+          onSave={saveEmp}
+          onClose={() => setEmpModalOpen(false)}
+          saving={empSaving}
+          error={empError}
+        />
+      )}
+    </div>
+  );
+}
+
+const InfoBlock = ({ title, items }) => (
+  <div>
+    <div style={{ fontSize: 11.5, fontWeight: 600, color: "var(--text-tertiary)", letterSpacing: "0.08em", textTransform: "uppercase", marginBottom: 12 }}>
+      {title}
+    </div>
+    <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+      {items.map(([k, v]) => (
+        <div key={k} style={{ display: "grid", gridTemplateColumns: "140px 1fr", fontSize: 13 }}>
+          <div style={{ color: "var(--text-tertiary)" }}>{k}</div>
+          <div style={{ fontWeight: 500, wordBreak: "break-word" }}>{v}</div>
+        </div>
+      ))}
+    </div>
+  </div>
+);
+
+function EmployeeModal({ form, setForm, editing, onSave, onClose, saving, error }) {
+  const u = (k, v) => setForm({ ...form, [k]: v });
+
+  return (
+    <div className="modal-backdrop" onClick={onClose}>
+      <div className="modal animate-slide-up" onClick={(e) => e.stopPropagation()} style={{ maxWidth: 720 }}>
+        <div className="modal-header">
+          <div className="modal-title">{editing ? "Uredi zaposlenog" : "Novi zaposleni"}</div>
+          <button onClick={onClose} style={{ border: "none", background: "transparent", padding: 6 }}>
+            <X size={18} />
+          </button>
+        </div>
+        <div className="modal-body">
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 14 }}>
+            <Field label="Ime *" value={form.ime} onChange={(v) => u("ime", v)} testid="emp-ime" />
+            <Field label="Prezime *" value={form.prezime} onChange={(v) => u("prezime", v)} testid="emp-prezime" />
+            <Field label="JMBG" value={form.jmbg} onChange={(v) => u("jmbg", v)} testid="emp-jmbg" />
+            <Field label="Lična karta" value={form.licna_karta} onChange={(v) => u("licna_karta", v)} testid="emp-licna" />
+            <Field label="Adresa" value={form.adresa} onChange={(v) => u("adresa", v)} testid="emp-adresa" />
+            <Field label="Grad" value={form.grad} onChange={(v) => u("grad", v)} testid="emp-grad" />
+            <Field label="Pozicija (radno mjesto)" value={form.pozicija} onChange={(v) => u("pozicija", v)} testid="emp-pozicija" />
+            <Field label="Stručna sprema" value={form.strucna_sprema} onChange={(v) => u("strucna_sprema", v)} testid="emp-ss" />
+            <Field label="Bruto plata (€)" value={form.plata_bruto} onChange={(v) => u("plata_bruto", v)} testid="emp-bruto" type="number" />
+            <Field label="Neto plata (€)" value={form.plata_neto} onChange={(v) => u("plata_neto", v)} testid="emp-neto" type="number" />
+            <Field label="Datum početka rada" value={form.datum_pocetka} onChange={(v) => u("datum_pocetka", v)} testid="emp-pocetak" type="date" />
+            <div className="field-group">
+              <label className="field-label">Vrsta ugovora</label>
+              <select className="select" value={form.vrsta_ugovora} onChange={(e) => u("vrsta_ugovora", e.target.value)} data-testid="emp-vrsta">
+                <option value="neodredjeno">Na neodređeno</option>
+                <option value="odredjeno">Na određeno</option>
+              </select>
+            </div>
+            <div className="field-group">
+              <label className="field-label">Radno vrijeme</label>
+              <select className="select" value={form.radno_vrijeme} onChange={(e) => u("radno_vrijeme", e.target.value)}>
+                <option value="puno">Puno radno vrijeme</option>
+                <option value="skraceno">Skraćeno</option>
+              </select>
+            </div>
+            <Field label="Telefon" value={form.telefon} onChange={(v) => u("telefon", v)} testid="emp-tel" />
+            <Field label="Email" value={form.email} onChange={(v) => u("email", v)} testid="emp-email" />
+          </div>
+          {error && <div style={{ marginTop: 14, padding: "10px 12px", background: "var(--danger-bg)", color: "var(--danger-text)", borderRadius: 6, fontSize: 13 }}>{error}</div>}
+        </div>
+        <div className="modal-footer">
+          <button className="btn btn-secondary" onClick={onClose}>Odustani</button>
+          <button className="btn btn-primary" onClick={onSave} disabled={saving} data-testid="save-employee-btn">
+            {saving ? <Spinner size={14} className="spin" /> : <Check size={14} />}
+            Sačuvaj
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+const Field = ({ label, value, onChange, testid, type = "text" }) => (
+  <div className="field-group">
+    <label className="field-label">{label}</label>
+    <input className="input" type={type} value={value ?? ""} onChange={(e) => onChange(e.target.value)} data-testid={testid} />
+  </div>
+);

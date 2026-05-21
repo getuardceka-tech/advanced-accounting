@@ -1,0 +1,41 @@
+{
+  "summary": "Backend API tested end-to-end via pytest. Created /app/backend/tests/backend_test.py with 24 tests covering auth, agency, companies CRUD/search/filters, IRMS PIB lookup, employees CRUD, templates listing (57 templates verified), document generation + download with JWT token, PDV/IOPPD tracking, and dashboard stats. Found and fixed 1 bug: PUT /api/agency returned 500 (MongoDB _id mutation issue). After fix: 24/24 tests passing.",
+  "backend_issues": {
+    "critical": [],
+    "minor": [
+      {"endpoint": "GET /api/auth/me (without token)", "issue": "Returns 403 instead of 401 when Authorization header missing. This is FastAPI HTTPBearer default; consider auto_error=False + explicit 401 for cleaner API contract."},
+      {"endpoint": "DELETE /api/companies/{id}", "issue": "Returns 200 with success even when the id does not exist. Consider returning 404 for non-existent id to make idempotency explicit."},
+      {"endpoint": "DELETE /api/employees/{id}", "issue": "Same as above — no 404 when id does not exist."},
+      {"endpoint": "GET /api/companies/lookup-pib", "issue": "Calls 3 external IRMS endpoints sequentially using blocking `requests` lib inside an async route. This blocks the event loop. Use httpx.AsyncClient or run in executor."},
+      {"endpoint": "PUT /api/companies/{id}", "issue": "Allows changing the PIB to one already used by another company (no duplicate check on update)."}
+    ]
+  },
+  "frontend_issues": {"ui_bugs": [], "integration_issues": [], "design_issues": []},
+  "test_report_links": [
+    "/app/backend/tests/backend_test.py",
+    "/app/test_reports/pytest/pytest_results.xml"
+  ],
+  "action_items": [
+    "Consider returning 404 (not 200) on DELETE for non-existent company/employee.",
+    "Consider switching IRMS lookup from blocking `requests` to async httpx to avoid blocking the event loop.",
+    "Add duplicate-PIB check inside PUT /api/companies/{id} (currently only POST checks).",
+    "Consider HTTPBearer(auto_error=False) so missing token returns 401 not 403."
+  ],
+  "critical_code_review_comments": [
+    "FIXED: PUT /api/agency was returning 500 due to MongoDB `insert_one` mutating the passed dict with ObjectId `_id`, which then leaked into the response and broke JSON encoding. Fix: pass a copy `dict(doc)` to insert_one (committed in /app/backend/server.py).",
+    "Single-file backend server.py is 911 lines — close to the 700-line guideline. Consider splitting routers into /app/backend/routers/{auth,companies,employees,documents,pdv}.py for maintainability.",
+    "IRMS lookup uses blocking `requests` in an async endpoint with 8s timeout × 3 endpoints = up to 24s of blocking. Should be async (httpx).",
+    "Document download endpoint accepts token via query string and does not validate that the file's company belongs to the authenticated user (currently single-user system so OK, but to be aware for future multi-tenant)."
+  ],
+  "updated_files": [
+    "/app/backend/server.py (1-line fix: dict(doc) in update_agency to avoid _id leak)",
+    "/app/backend/tests/backend_test.py (new test suite)"
+  ],
+  "success_rate": {"backend": "100% (24/24)", "frontend": "N/A (not requested)"},
+  "test_credentials": "username='getuard' password='Getuard1994.' (from /app/memory/test_credentials.md)",
+  "seed_data_creation": "Tests create/delete a TEST_FIRMA_DOO (PIB 99887766) and a transient TEST_CRUD_FIRMA (PIB 11223344), plus one Employee. All cleaned up at session teardown.",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "Backend is fully working. Default user 'getuard' and Agency are seeded on startup. 57 templates load from /app/backend/templates/. Document generation via python-docx works and writes to /app/backend/generated/. The /api/documents/download endpoint requires ?token=<jwt> for download links. IRMS portal external call gracefully degrades to success=false when unreachable. For frontend testing, login at /login with getuard/Getuard1994., then exercise the company creation form (which triggers /api/companies/lookup-pib for autofill), template document generator, and the PDV tracking checklist for year=2026 month=2.",
+  "rca of the issue": "Bug: PUT /api/agency → 500. RCA: motor's `insert_one(doc)` mutates the dict in place by inserting `_id: ObjectId(...)`. The function then returned that same `doc`, and FastAPI's jsonable_encoder cannot serialize ObjectId, causing TypeError → 500. Reproduction: GET /api/agency then PUT same body back. Mitigation: pass a shallow copy `dict(doc)` (or `doc.copy()`) to insert_one. Fix applied in server.py line ~298. Verified by re-running pytest — TestAgency::test_update_agency now PASSES."
+}
