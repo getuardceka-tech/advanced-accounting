@@ -183,7 +183,7 @@ class DocumentGenerateRequest(BaseModel):
     template_filename: str
     company_id: str
     employee_id: Optional[str] = None
-    custom_fields: Dict[str, str] = {}  # dodatna polja koja korisnik ručno popunjava
+    custom_fields: Dict[str, Any] = {}  # dodatna polja koja korisnik ručno popunjava (može sadržati liste i brojeve)
 
 
 class AneksRequest(BaseModel):
@@ -1491,7 +1491,39 @@ def _build_replacements(company: dict, employee: Optional[dict], agency: dict, c
             # 6.Vrsta i opis promjene → ostavi placeholder
             pass
     
-    # "Prijava zanatstva" — sada koristi PDF overlay, ne DOCX. Skipuj stari DOCX kod.
+    # ============ CUSTOM FIELDS za druge odluke ============
+    # 1) ODLUKA O POPUSTU — custom % popust
+    if "popust" in tname_lower and custom.get("popust_procenat"):
+        pct = str(custom["popust_procenat"]).replace(",", ".").strip()
+        if not pct.endswith("%"):
+            pct = f"{pct}%"
+        repl["10%"] = pct
+    
+    # 2) OBAVJESTENJE O RADNOM VREMENU — user-input radno vrijeme
+    if ("obavjestenje" in tname_lower or "obavještenje" in tname_lower) and "radn" in tname_lower:
+        if custom.get("radno_vrijeme"):
+            repl["08:00-12:00"] = custom["radno_vrijeme"]
+    
+    # 3) ODLUKA O RADNOM VREMENU - KOMUNALNA POLICIJA — radno vrijeme + dani
+    if "komunaln" in tname_lower:
+        rv = custom.get("radno_vrijeme", "")  # npr. "07:00 do 24:00"
+        dani = custom.get("dani_rada", "")     # npr. "ponedeljak – nedelja"
+        if rv:
+            # Pojavljuje se 2 puta: "07:00 do 24:00 časova" + "od 07:00 do 24:00"
+            # Format: razdvoji "od X do Y"
+            repl["07:00 do 24:00"] = rv
+        if dani:
+            repl["ponedeljak – nedelja"] = dani
+    
+    # 4) ODLUKA ZA RAD TOKOM PRAZNIKA — custom lista praznika i godina
+    if "praznika" in tname_lower or "prazni" in tname_lower:
+        if custom.get("godina"):
+            # "tokom 2026 god." → tokom {godina} god.
+            repl["tokom 2026 god"] = f"tokom {custom['godina']} god"
+            repl["2026"] = str(custom["godina"])
+        # Note: lista praznika se popunjava preko paragraph editovanja u document, ne single replace
+    
+
     # (Stari DOCX kod ispod je dead code — ostavljam za referencu ali se ne izvršava)
     if False and ("prijava_zanatstva" in tname_lower or "prijava zanatstva" in tname_lower):
         # 1.1. Naziv/ime/Emri _____...
@@ -1611,6 +1643,145 @@ def _fit_to_a4_one_page(doc: Document):
                                 run.font.size = Pt(10)
                         except Exception:
                             pass
+
+
+def _populate_employees_table(doc, employees: list, tname_lower: str, custom: dict):
+    """Popuni glavnu tabelu sa svim radnicima firme — za odluke koje imaju spisak."""
+    if not doc.tables or not employees:
+        return
+    # Pretpostavka: prva tabela je spisak radnika (rb, ime, ...)
+    tbl = doc.tables[0]
+    rows = tbl.rows
+    if len(rows) < 2:
+        return
+    # 1. red su zaglavlja, popuni od 2. reda
+    headers = [c.text.strip().lower() for c in rows[0].cells]
+    n_cols = len(rows[0].cells)
+    
+    # Defaults po template-u
+    is_raspored = "rasporedu radnog" in tname_lower
+    is_pauza = "pauze" in tname_lower
+    is_sedmicni = "sedmic" in tname_lower or "sedmič" in tname_lower
+    is_godisnji = "godisnji" in tname_lower or "godišnji" in tname_lower
+    
+    # Default radno vrijeme (Pon-Sub I smjena = 'I', Ned = 'X' / slobodan)
+    smjena_default = custom.get("smjena_oznaka") or "I"
+    
+    # Loop kroz radnike, ako tabela nema dovoljno redova — dodaj
+    for i, emp in enumerate(employees):
+        if i + 1 < len(rows):
+            row = rows[i + 1]
+        else:
+            row = tbl.add_row()
+        cells = row.cells
+        ime_prezime = f"{emp.get('ime','')} {emp.get('prezime','')}".strip()
+        pozicija = emp.get("pozicija", "")
+        if n_cols >= 1:
+            cells[0].text = f"{i+1}."
+        if n_cols >= 2:
+            cells[1].text = ime_prezime
+        # 3. kolona — zavisi od template-a
+        if n_cols >= 3:
+            if is_raspored:
+                cells[2].text = pozicija  # Radno mjesto
+            elif is_pauza:
+                cells[2].text = custom.get("pauza_default") or "10:00-10:30h"
+            elif is_sedmicni:
+                cells[2].text = custom.get("sedmicni_default") or "NEDELJA"
+            elif is_godisnji:
+                cells[2].text = custom.get("godisnji_default") or ""
+        # Za raspored radnog vremena — popuni dane (kolone 3..9)
+        if is_raspored and n_cols >= 10:
+            for d_idx in range(3, 9):  # Pon-Sub
+                cells[d_idx].text = smjena_default
+            cells[9].text = "X"  # Nedjelja
+        elif is_raspored and n_cols >= 4:
+            # Manji broj kolona — staviti samo pozicija
+            pass
+    
+    # Obriši višak praznih redova (osim ako ih je manje od potrebnog)
+    extra_idx = len(employees) + 1
+    while extra_idx < len(rows):
+        row = rows[extra_idx]
+        # Ako je red prazan (samo rb), ostavi praznim — ne brišemo
+        extra_idx += 1
+
+
+# Lista praznika Crne Gore (državni + vjerski)
+CG_PRAZNICI = [
+    {"datum": "01.01", "naziv": "Nova godina", "tip": "državni"},
+    {"datum": "02.01", "naziv": "Nova godina (drugi dan)", "tip": "državni"},
+    {"datum": "06.01", "naziv": "Badnji dan (pravoslavni)", "tip": "vjerski"},
+    {"datum": "07.01", "naziv": "Božić (pravoslavni)", "tip": "vjerski"},
+    {"datum": "08.01", "naziv": "Božić (pravoslavni, treći dan)", "tip": "vjerski"},
+    {"datum": "01.05", "naziv": "Praznik rada", "tip": "državni"},
+    {"datum": "02.05", "naziv": "Praznik rada (drugi dan)", "tip": "državni"},
+    {"datum": "21.05", "naziv": "Dan nezavisnosti", "tip": "državni"},
+    {"datum": "22.05", "naziv": "Dan nezavisnosti (drugi dan)", "tip": "državni"},
+    {"datum": "13.07", "naziv": "Dan državnosti", "tip": "državni"},
+    {"datum": "14.07", "naziv": "Dan državnosti (drugi dan)", "tip": "državni"},
+    {"datum": "13.11", "naziv": "Njegošev dan", "tip": "državni"},
+    {"datum": "14.11", "naziv": "Njegošev dan (drugi dan)", "tip": "državni"},
+    {"datum": "25.12", "naziv": "Božić (katolički)", "tip": "vjerski"},
+    {"datum": "26.12", "naziv": "Božić (katolički, drugi dan)", "tip": "vjerski"},
+]
+
+def _dan_nedjelje(d_str: str, year: int) -> str:
+    """Vrati skraćeni naziv dana u sedmici (Pon, Uto, ...) za datum DD.MM godine."""
+    try:
+        dt = datetime.strptime(f"{d_str}.{year}", "%d.%m.%Y")
+        dani = ["Pon", "Uto", "Sri", "Čet", "Pet", "Sub", "Ned"]
+        return dani[dt.weekday()]
+    except Exception:
+        return ""
+
+
+def _populate_praznici_lista(doc, praznici: list):
+    """Zamijeni postojeću listu praznika u Odluci za rad tokom praznika sa custom listom.
+    Praznici: lista dict-ova [{datum: '01.05.2026', naziv: 'Praznik rada', dan: 'Pet'}, ...]
+    """
+    # Pronađi paragrafe sa praznicima (sadrži "Praznik rada" ili "01. 05. 2026" pattern)
+    target_paragraphs = []
+    for i, p in enumerate(doc.paragraphs):
+        text = p.text.strip()
+        # Hard-coded references u sample template-u
+        sample_indicators = ["Praznik rada", "Dan nezavisnosti", "Dan državnosti", "Njegošev dan", "Badnji dan", "Božić"]
+        if any(ind in text for ind in sample_indicators) and len(text) < 100:
+            target_paragraphs.append((i, p))
+    
+    # Obriši postojeće stare praznike (clear text)
+    for idx, p in target_paragraphs:
+        for run in p.runs:
+            run.text = ""
+    
+    # Upiši nove praznike u prvi paragraf, ostatak postaje prazni
+    if not target_paragraphs:
+        return
+    
+    first_p = target_paragraphs[0][1]
+    if not first_p.runs:
+        return
+    
+    # Format: "Pet\t01. 05. 2026.\tPraznik rada"
+    lines = []
+    for pr in praznici:
+        dan = pr.get("dan", "")
+        datum = pr.get("datum", "")
+        naziv = pr.get("naziv", "")
+        if datum and naziv:
+            lines.append(f"{dan}\t{datum}.\t{naziv}")
+    
+    if not lines:
+        return
+    
+    # Prvi paragraf → prva linija, ostatak → preostalo, do limita
+    for j, (idx, p) in enumerate(target_paragraphs):
+        if j < len(lines):
+            if p.runs:
+                p.runs[0].text = lines[j]
+        else:
+            # Prazno — već je clear-ovano
+            pass
 
 
 def _docx_replace(doc: Document, replacements: Dict[str, str]):
@@ -1765,6 +1936,27 @@ async def generate_document(req: DocumentGenerateRequest, username: str = Depend
     doc = Document(str(template_path))
     _docx_replace(doc, replacements)
     
+    # POST-PROCESSING: dodatne template-specific transformacije
+    tname_lower = req.template_filename.lower()
+    custom = req.custom_fields or {}
+    
+    # Tabela svih zaposlenih za odluke (rasporedu/sedmični/godišnji/pauza)
+    is_table_template = any(k in tname_lower for k in [
+        "rasporedu radnog", "sedmicnog odmora", "sedmičnog odmora",
+        "godisnji odmor", "godišnji odmor", "koriscenje pauze", "korišćenje pauze",
+    ])
+    if is_table_template:
+        emp_list = await db.employees.find({"company_id": req.company_id}, {"_id": 0}).to_list(length=200)
+        # Sortiraj radnike po imenu
+        emp_list.sort(key=lambda e: (e.get("ime", "") + " " + e.get("prezime", "")).strip().upper())
+        _populate_employees_table(doc, emp_list, tname_lower, custom)
+    
+    # Lista praznika u Odluka za rad tokom praznika
+    if "praznika" in tname_lower or "prazni" in tname_lower:
+        praznici_lista = custom.get("praznici_lista") or []
+        if praznici_lista:
+            _populate_praznici_lista(doc, praznici_lista)
+    
     # MSG 292: Formatiranje na 1 A4 stranicu za Obavještenje o knjizi prigovora
     if "knjige prigovora" in req.template_filename.lower() or "knjigu prigovora" in req.template_filename.lower() or "podnosenja prigovora" in req.template_filename.lower():
         _fit_to_a4_one_page(doc)
@@ -1864,6 +2056,111 @@ async def delete_document_history_item(record_id: str, username: str = Depends(g
                     pass
     await db.generated_documents.delete_one({"id": record_id})
     return {"success": True}
+
+
+@api_router.get("/praznici/{year}")
+async def list_praznici_godina(year: int, username: str = Depends(get_current_user)):
+    """Vraća listu državnih i vjerskih praznika Crne Gore za datu godinu sa danom u sedmici."""
+    result = []
+    for p in CG_PRAZNICI:
+        dan = _dan_nedjelje(p["datum"], year)
+        result.append({
+            "datum": f"{p['datum']}.{year}",
+            "naziv": p["naziv"],
+            "tip": p["tip"],
+            "dan": dan,
+        })
+    return {"godina": year, "praznici": result}
+
+
+@api_router.post("/documents/bulk-generate")
+async def bulk_generate_documents(
+    request: dict,
+    username: str = Depends(get_current_user)
+):
+    """Generiše više dokumenata odjednom (jedan template × više zaposlenih) → ZIP fajl."""
+    import zipfile
+    
+    template_filename = request.get("template_filename")
+    company_id = request.get("company_id")
+    employee_ids = request.get("employee_ids") or []
+    custom_fields = request.get("custom_fields") or {}
+    
+    if not template_filename or not company_id or not employee_ids:
+        raise HTTPException(400, "template_filename, company_id i employee_ids su obavezni")
+    
+    template_path = TEMPLATES_DIR / template_filename
+    if not template_path.exists():
+        raise HTTPException(404, "Šablon nije pronađen")
+    
+    company = await db.companies.find_one({"id": company_id}, {"_id": 0})
+    if not company:
+        raise HTTPException(404, "Firma nije pronađena")
+    
+    agency = await db.agency.find_one({}, {"_id": 0}) or Agency().model_dump()
+    
+    # Privremeni ZIP fajl
+    zip_id = uuid.uuid4().hex[:8]
+    safe_naziv = re.sub(r'[^\w-]', '_', (company.get("naziv_skraceni") or company.get("naziv","firma"))[:30])
+    zip_filename = f"{zip_id}_{template_path.stem}_{safe_naziv}_BULK.zip"
+    zip_filename = re.sub(r'[^\w.-]', '_', zip_filename)
+    zip_path = GENERATED_DIR / zip_filename
+    
+    generated_count = 0
+    failed = []
+    
+    with zipfile.ZipFile(zip_path, 'w', zipfile.ZIP_DEFLATED) as zf:
+        for emp_id in employee_ids:
+            employee = await db.employees.find_one({"id": emp_id}, {"_id": 0})
+            if not employee:
+                failed.append(f"emp_id {emp_id} not found")
+                continue
+            try:
+                replacements = _build_replacements(company, employee, agency, custom_fields, template_filename)
+                doc = Document(str(template_path))
+                _docx_replace(doc, replacements)
+                
+                emp_safe = re.sub(r'[^\w-]', '_', f"{employee.get('ime','')}_{employee.get('prezime','')}")[:40]
+                fname_in_zip = f"{template_path.stem}_{emp_safe}.docx"
+                tmp_path = GENERATED_DIR / f"tmp_{uuid.uuid4().hex[:6]}.docx"
+                doc.save(str(tmp_path))
+                # Convert to PDF
+                pdf_tmp = _convert_to_pdf(tmp_path)
+                # Add both DOCX and PDF to ZIP
+                zf.write(tmp_path, f"{template_path.stem}_{emp_safe}.docx")
+                if pdf_tmp and Path(pdf_tmp).exists():
+                    zf.write(pdf_tmp, f"{template_path.stem}_{emp_safe}.pdf")
+                    Path(pdf_tmp).unlink(missing_ok=True)
+                tmp_path.unlink(missing_ok=True)
+                generated_count += 1
+                
+                # Zapiši u istoriju
+                await db.generated_documents.insert_one({
+                    "id": str(uuid.uuid4()),
+                    "filename": fname_in_zip,
+                    "pdf_filename": fname_in_zip.replace(".docx", ".pdf"),
+                    "template": template_filename,
+                    "template_filename": template_filename,
+                    "company_id": company_id,
+                    "company_naziv": company.get("naziv", ""),
+                    "employee_id": emp_id,
+                    "employee_naziv": f"{employee.get('ime','')} {employee.get('prezime','')}".strip(),
+                    "custom_fields": custom_fields,
+                    "bulk_zip": zip_filename,
+                    "created_at": datetime.now(timezone.utc).isoformat(),
+                    "created_by": username,
+                })
+            except Exception as e:
+                failed.append(f"emp {emp_id}: {str(e)[:80]}")
+    
+    return {
+        "success": True,
+        "generated_count": generated_count,
+        "total_requested": len(employee_ids),
+        "failed": failed,
+        "zip_filename": zip_filename,
+        "download_url": f"/api/documents/download/{zip_filename}",
+    }
 
 
 @api_router.get("/companies/{company_id}/objekti")

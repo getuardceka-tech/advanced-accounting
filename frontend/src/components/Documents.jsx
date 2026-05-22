@@ -137,13 +137,30 @@ export default function Documents() {
     setGenerating(true);
     setGenError("");
     try {
-      const resp = await api.post("/documents/generate", {
-        template_filename: selectedTemplate.filename,
-        company_id: companyId,
-        employee_id: employeeId || null,
-        custom_fields: customFields,
-      });
-      setGenResult(resp.data);
+      // Bulk path — ako su selektovani zaposleni za bulk
+      const bulkIds = customFields.bulk_employee_ids || [];
+      if (bulkIds.length > 0) {
+        const resp = await api.post("/documents/bulk-generate", {
+          template_filename: selectedTemplate.filename,
+          company_id: companyId,
+          employee_ids: bulkIds,
+          custom_fields: customFields,
+        });
+        setGenResult({
+          ...resp.data,
+          bulk: true,
+          pdf_filename: resp.data.zip_filename,
+          filename: resp.data.zip_filename,
+        });
+      } else {
+        const resp = await api.post("/documents/generate", {
+          template_filename: selectedTemplate.filename,
+          company_id: companyId,
+          employee_id: employeeId || null,
+          custom_fields: customFields,
+        });
+        setGenResult(resp.data);
+      }
       // Refresh history u pozadini
       if (tab === "istorija") loadHistory();
     } catch (e) {
@@ -451,6 +468,16 @@ export default function Documents() {
                     />
                   )}
                   
+                  {/* Extras za odluke sa custom poljima ili spiskom radnika */}
+                  {selectedTemplate && companyId && (
+                    <ExtrasOdluka
+                      template={selectedTemplate}
+                      values={customFields}
+                      onChange={setCustomFields}
+                      companyId={companyId}
+                    />
+                  )}
+                  
                   {/* Extras za Prijava zanatstva i Prijava trgovine */}
                   {selectedTemplate && (
                     (selectedTemplate.filename.toLowerCase().includes("prijava zanatstva") ||
@@ -486,45 +513,62 @@ export default function Documents() {
                     <Check size={28} weight="bold" />
                   </div>
                   <div style={{ fontFamily: "Cabinet Grotesk", fontSize: 18, fontWeight: 700, marginBottom: 6 }}>
-                    Dokument je spreman!
+                    {genResult.bulk ? `${genResult.generated_count} dokumenata spremno!` : "Dokument je spreman!"}
                   </div>
                   <div style={{ fontSize: 13, color: "var(--text-tertiary)", marginBottom: 20 }}>
-                    Sva polja su popunjena podacima firme {genResult.record?.company_naziv ? `"${genResult.record.company_naziv}"` : ""}.
+                    {genResult.bulk
+                      ? `ZIP fajl sadrži DOCX + PDF za svakog zaposlenog (${genResult.generated_count}/${genResult.total_requested}).`
+                      : `Sva polja su popunjena podacima firme ${genResult.record?.company_naziv ? `"${genResult.record.company_naziv}"` : ""}.`}
                   </div>
                   <div style={{ display: "flex", gap: 8, justifyContent: "center", flexWrap: "wrap" }}>
-                    <a
-                      href={`${API}/documents/preview/${genResult.pdf_filename}?token=${getToken()}`}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="btn btn-primary btn-lg"
-                      data-testid="open-pdf-btn"
-                    >
-                      <Printer size={16} /> Otvori PDF za štampu
-                    </a>
-                    {!selectedTemplate.is_pdf_form && genResult.filename && genResult.filename.endsWith('.docx') && (
+                    {genResult.bulk ? (
                       <a
-                        href={`${API}/documents/download/${genResult.filename}?token=${getToken()}`}
-                        className="btn btn-secondary btn-lg"
+                        href={`${API}/documents/download/${genResult.zip_filename}?token=${getToken()}`}
+                        className="btn btn-primary btn-lg"
                         download
-                        data-testid="download-generated-btn"
+                        data-testid="download-bulk-zip"
                       >
-                        <DownloadSimple size={16} /> Word (.docx)
+                        <DownloadSimple size={16} /> Preuzmi ZIP ({genResult.generated_count} fajlova)
                       </a>
-                    )}
-                    {selectedTemplate.is_pdf_form && (
-                      <a
-                        href={`${API}/documents/download/${genResult.pdf_filename}?token=${getToken()}`}
-                        className="btn btn-secondary btn-lg"
-                        download
-                        data-testid="download-generated-btn"
-                      >
-                        <DownloadSimple size={16} /> Preuzmi PDF
-                      </a>
+                    ) : (
+                      <>
+                        <a
+                          href={`${API}/documents/preview/${genResult.pdf_filename}?token=${getToken()}`}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="btn btn-primary btn-lg"
+                          data-testid="open-pdf-btn"
+                        >
+                          <Printer size={16} /> Otvori PDF za štampu
+                        </a>
+                        {!selectedTemplate.is_pdf_form && genResult.filename && genResult.filename.endsWith('.docx') && (
+                          <a
+                            href={`${API}/documents/download/${genResult.filename}?token=${getToken()}`}
+                            className="btn btn-secondary btn-lg"
+                            download
+                            data-testid="download-generated-btn"
+                          >
+                            <DownloadSimple size={16} /> Word (.docx)
+                          </a>
+                        )}
+                        {selectedTemplate.is_pdf_form && (
+                          <a
+                            href={`${API}/documents/download/${genResult.pdf_filename}?token=${getToken()}`}
+                            className="btn btn-secondary btn-lg"
+                            download
+                            data-testid="download-generated-btn"
+                          >
+                            <DownloadSimple size={16} /> Preuzmi PDF
+                          </a>
+                        )}
+                      </>
                     )}
                   </div>
-                  <div style={{ marginTop: 14, fontSize: 11.5, color: "var(--text-tertiary)" }}>
-                    PDF se otvara u novom tabu — pritisnite Ctrl+P za štampu.
-                  </div>
+                  {!genResult.bulk && (
+                    <div style={{ marginTop: 14, fontSize: 11.5, color: "var(--text-tertiary)" }}>
+                      PDF se otvara u novom tabu — pritisnite Ctrl+P za štampu.
+                    </div>
+                  )}
                 </div>
               )}
             </div>
@@ -540,6 +584,291 @@ export default function Documents() {
           </div>
         </div>
       )}
+    </div>
+  );
+}
+
+
+function ExtrasOdluka({ template, values, onChange, companyId }) {
+  const fn = (template?.filename || "").toLowerCase();
+  
+  const isPopust = fn.includes("popust");
+  const isObavjestenjeRadno = (fn.includes("obavjestenje") || fn.includes("obavještenje")) && fn.includes("radn");
+  const isKomunalna = fn.includes("komunaln");
+  const isPraznici = fn.includes("praznika") || fn.includes("praznici");
+  const isTableTpl = ["rasporedu radnog", "sedmicnog odmora", "sedmičnog odmora", "godisnji odmor", "godišnji odmor", "koriscenje pauze", "korišćenje pauze"].some(k => fn.includes(k));
+  const isMobing = fn.includes("mobing") || fn.includes("uznemiravanj");
+  const isIzjavaOdgovornost = fn.includes("izjava") && (fn.includes("odgovornost") || fn.includes("pravim"));
+  
+  const showAny = isPopust || isObavjestenjeRadno || isKomunalna || isPraznici || isTableTpl || isMobing || isIzjavaOdgovornost;
+  if (!showAny) return null;
+  
+  const u = (k, v) => onChange({ ...values, [k]: v });
+  
+  return (
+    <div style={{ marginTop: 8, marginBottom: 14 }}>
+      {isPopust && <PopustInput values={values} u={u} />}
+      {isObavjestenjeRadno && <RadnoVrijemeInput values={values} u={u} />}
+      {isKomunalna && <KomunalnaInput values={values} u={u} />}
+      {isPraznici && <PrazniciPicker values={values} onChange={onChange} />}
+      {isTableTpl && <EmployeesTablePreview companyId={companyId} values={values} u={u} fn={fn} />}
+      {(isMobing || isIzjavaOdgovornost) && <BulkEmployeesPicker companyId={companyId} values={values} onChange={onChange} />}
+    </div>
+  );
+}
+
+function PopustInput({ values, u }) {
+  return (
+    <div className="field-group" style={{ marginBottom: 12 }}>
+      <label className="field-label">% Popusta (član 2)</label>
+      <input
+        className="input"
+        type="number"
+        min="0" max="100" step="0.5"
+        placeholder="Npr. 15"
+        value={values.popust_procenat ?? ""}
+        onChange={(e) => u("popust_procenat", e.target.value)}
+        data-testid="popust-input"
+        style={{ maxWidth: 200 }}
+      />
+      <div style={{ fontSize: 11.5, color: "var(--text-tertiary)", marginTop: 4 }}>
+        Zamijeniće "10%" u članu 2 odluke o popustu sa unesenim iznosom.
+      </div>
+    </div>
+  );
+}
+
+function RadnoVrijemeInput({ values, u }) {
+  return (
+    <div className="field-group" style={{ marginBottom: 12 }}>
+      <label className="field-label">Radno vrijeme objekta</label>
+      <input
+        className="input"
+        placeholder="Npr. 08:00-22:00"
+        value={values.radno_vrijeme ?? ""}
+        onChange={(e) => u("radno_vrijeme", e.target.value)}
+        data-testid="radno-vrijeme-input"
+        style={{ maxWidth: 280 }}
+      />
+      <div style={{ fontSize: 11.5, color: "var(--text-tertiary)", marginTop: 4 }}>
+        Zamijeniće "08:00-12:00" u obavještenju.
+      </div>
+    </div>
+  );
+}
+
+function KomunalnaInput({ values, u }) {
+  return (
+    <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginBottom: 12 }}>
+      <div className="field-group">
+        <label className="field-label">Radno vrijeme</label>
+        <input
+          className="input"
+          placeholder="Npr. 07:00 do 24:00"
+          value={values.radno_vrijeme ?? ""}
+          onChange={(e) => u("radno_vrijeme", e.target.value)}
+          data-testid="kom-radno-vrijeme"
+        />
+      </div>
+      <div className="field-group">
+        <label className="field-label">Dani rada</label>
+        <input
+          className="input"
+          placeholder="Npr. ponedeljak – nedelja"
+          value={values.dani_rada ?? ""}
+          onChange={(e) => u("dani_rada", e.target.value)}
+          data-testid="kom-dani"
+        />
+      </div>
+      <div style={{ gridColumn: "1 / -1", fontSize: 11.5, color: "var(--text-tertiary)" }}>
+        Auto-popunjava odluku za prijavu Komunalnoj policiji.
+      </div>
+    </div>
+  );
+}
+
+function PrazniciPicker({ values, onChange }) {
+  const currentYear = new Date().getFullYear();
+  const [year, setYear] = useState(values.godina || currentYear);
+  const [allPraznici, setAllPraznici] = useState([]);
+  const [loading, setLoading] = useState(false);
+  
+  useEffect(() => {
+    setLoading(true);
+    api.get(`/praznici/${year}`)
+      .then((r) => setAllPraznici(r.data.praznici || []))
+      .catch(() => setAllPraznici([]))
+      .finally(() => setLoading(false));
+    onChange({ ...values, godina: year });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [year]);
+  
+  const selectedSet = new Set((values.praznici_lista || []).map((p) => p.datum));
+  
+  const toggle = (pr) => {
+    const cur = values.praznici_lista || [];
+    if (selectedSet.has(pr.datum)) {
+      onChange({ ...values, praznici_lista: cur.filter((x) => x.datum !== pr.datum), godina: year });
+    } else {
+      onChange({ ...values, praznici_lista: [...cur, pr], godina: year });
+    }
+  };
+  
+  const selectAll = () => onChange({ ...values, praznici_lista: allPraznici, godina: year });
+  const clearAll = () => onChange({ ...values, praznici_lista: [], godina: year });
+  
+  return (
+    <div style={{ marginBottom: 12 }}>
+      <div style={{ display: "flex", alignItems: "center", gap: 8, margin: "8px 0 10px 0", paddingBottom: 6, borderBottom: "1px solid var(--border)" }}>
+        <div style={{ width: 22, height: 22, borderRadius: 6, background: "#0f172a", color: "white", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 12, fontWeight: 700 }}>P</div>
+        <div style={{ fontSize: 13.5, fontWeight: 700, color: "var(--text-primary)", textTransform: "uppercase", letterSpacing: "0.04em" }}>Praznici Crne Gore</div>
+      </div>
+      
+      <div style={{ display: "flex", gap: 12, alignItems: "center", marginBottom: 12 }}>
+        <div className="field-group" style={{ flex: "0 0 140px" }}>
+          <label className="field-label">Godina</label>
+          <select className="select" value={year} onChange={(e) => setYear(Number(e.target.value))} data-testid="praznici-godina">
+            {[currentYear-1, currentYear, currentYear+1, currentYear+2, currentYear+3].map(y => <option key={y} value={y}>{y}</option>)}
+          </select>
+        </div>
+        <button type="button" className="btn btn-secondary btn-sm" onClick={selectAll}>Sve</button>
+        <button type="button" className="btn btn-secondary btn-sm" onClick={clearAll}>Ništa</button>
+        <div style={{ fontSize: 12, color: "var(--text-tertiary)" }}>
+          {(values.praznici_lista || []).length} od {allPraznici.length} izabrano
+        </div>
+      </div>
+      
+      {loading ? <Spinner size={20} className="spin" /> : (
+        <div style={{ display: "grid", gridTemplateColumns: "1fr", gap: 4, maxHeight: 280, overflowY: "auto", border: "1px solid var(--border)", borderRadius: 8, padding: 8 }}>
+          {allPraznici.map((pr) => {
+            const sel = selectedSet.has(pr.datum);
+            return (
+              <label key={pr.datum} style={{ display: "flex", alignItems: "center", gap: 8, padding: "6px 8px", borderRadius: 6, cursor: "pointer", background: sel ? "#dbeafe" : "white", border: sel ? "1px solid #2563eb" : "1px solid transparent" }}>
+                <input type="checkbox" checked={sel} onChange={() => toggle(pr)} data-testid={`praznik-${pr.datum}`} />
+                <span style={{ fontWeight: 600, fontSize: 12, color: "#475569", width: 30 }}>{pr.dan}</span>
+                <span style={{ fontFamily: "monospace", fontSize: 13, color: "var(--text-secondary)", width: 100 }}>{pr.datum}</span>
+                <span style={{ fontSize: 13, flex: 1 }}>{pr.naziv}</span>
+                <span style={{ fontSize: 10, color: "var(--text-tertiary)", textTransform: "uppercase", letterSpacing: "0.05em" }}>{pr.tip}</span>
+              </label>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function EmployeesTablePreview({ companyId, values, u, fn }) {
+  const [employees, setEmployees] = useState([]);
+  useEffect(() => {
+    if (!companyId) return;
+    api.get(`/employees?company_id=${companyId}`)
+      .then((r) => setEmployees(r.data || []))
+      .catch(() => setEmployees([]));
+  }, [companyId]);
+  
+  const isRaspored = fn.includes("rasporedu radnog");
+  const isPauza = fn.includes("pauze");
+  const isSedmicni = fn.includes("sedmic") || fn.includes("sedmič");
+  const isGodisnji = fn.includes("godisnji") || fn.includes("godišnji");
+  
+  return (
+    <div style={{ marginBottom: 12 }}>
+      <div style={{ padding: 10, background: "#ecfdf5", border: "1px solid #6ee7b7", borderRadius: 8, marginBottom: 10 }}>
+        <div style={{ fontSize: 12.5, color: "#065f46", fontWeight: 600 }}>
+          ✓ Spisak svih {employees.length} zaposlenih iz firme biće automatski popunjen u tabeli odluke.
+        </div>
+      </div>
+      
+      {isRaspored && (
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginBottom: 10 }}>
+          <div className="field-group">
+            <label className="field-label">Smjena oznaka (Pon-Sub)</label>
+            <input className="input" placeholder="I" value={values.smjena_oznaka ?? "I"} onChange={(e) => u("smjena_oznaka", e.target.value)} data-testid="smjena-input" style={{ maxWidth: 100 }} />
+          </div>
+        </div>
+      )}
+      {isPauza && (
+        <div className="field-group" style={{ marginBottom: 10 }}>
+          <label className="field-label">Vrijeme pauze (default za sve)</label>
+          <input className="input" placeholder="10:00-10:30h" value={values.pauza_default ?? "10:00-10:30h"} onChange={(e) => u("pauza_default", e.target.value)} data-testid="pauza-input" style={{ maxWidth: 200 }} />
+        </div>
+      )}
+      {isSedmicni && (
+        <div className="field-group" style={{ marginBottom: 10 }}>
+          <label className="field-label">Dan sedmičnog odmora (default)</label>
+          <input className="input" placeholder="NEDELJA" value={values.sedmicni_default ?? "NEDELJA"} onChange={(e) => u("sedmicni_default", e.target.value)} data-testid="sedmicni-input" style={{ maxWidth: 200 }} />
+        </div>
+      )}
+      {isGodisnji && (
+        <div className="field-group" style={{ marginBottom: 10 }}>
+          <label className="field-label">Datum/period godišnjeg (default za sve)</label>
+          <input className="input" placeholder="Npr. 01.07.-15.07.2026" value={values.godisnji_default ?? ""} onChange={(e) => u("godisnji_default", e.target.value)} data-testid="godisnji-input" />
+        </div>
+      )}
+      
+      {employees.length > 0 && (
+        <div style={{ maxHeight: 160, overflowY: "auto", border: "1px solid var(--border)", borderRadius: 8, padding: 8, fontSize: 12.5 }}>
+          {employees.map((emp, idx) => (
+            <div key={emp.id} style={{ padding: "3px 6px", color: "var(--text-secondary)" }}>
+              {idx+1}. {emp.ime} {emp.prezime} {emp.pozicija ? `· ${emp.pozicija}` : ""}
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function BulkEmployeesPicker({ companyId, values, onChange }) {
+  const [employees, setEmployees] = useState([]);
+  useEffect(() => {
+    if (!companyId) return;
+    api.get(`/employees?company_id=${companyId}`)
+      .then((r) => setEmployees(r.data || []))
+      .catch(() => setEmployees([]));
+  }, [companyId]);
+  
+  const selected = new Set(values.bulk_employee_ids || []);
+  const toggle = (id) => {
+    const cur = values.bulk_employee_ids || [];
+    if (selected.has(id)) onChange({ ...values, bulk_employee_ids: cur.filter(x => x !== id) });
+    else onChange({ ...values, bulk_employee_ids: [...cur, id] });
+  };
+  const selectAll = () => onChange({ ...values, bulk_employee_ids: employees.map(e => e.id) });
+  const clearAll = () => onChange({ ...values, bulk_employee_ids: [] });
+  
+  return (
+    <div style={{ marginBottom: 12 }}>
+      <div style={{ display: "flex", alignItems: "center", gap: 8, margin: "8px 0 10px 0", paddingBottom: 6, borderBottom: "1px solid var(--border)" }}>
+        <div style={{ width: 22, height: 22, borderRadius: 6, background: "#0f172a", color: "white", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 12, fontWeight: 700 }}>!</div>
+        <div style={{ fontSize: 13.5, fontWeight: 700, color: "var(--text-primary)", textTransform: "uppercase", letterSpacing: "0.04em" }}>Bulk štampa za više zaposlenih</div>
+      </div>
+      
+      <div style={{ padding: 10, background: "#fef3c7", border: "1px solid #fbbf24", borderRadius: 8, marginBottom: 10, fontSize: 12, color: "#78350f" }}>
+        💡 Izaberi zaposlene za masovnu štampu (generiše se ZIP fajl). Ako nikog ne selektuješ, koristi se gornji "Zaposleni (opciono)" izbor.
+      </div>
+      
+      <div style={{ display: "flex", gap: 6, marginBottom: 8 }}>
+        <button type="button" className="btn btn-secondary btn-sm" onClick={selectAll}>Selektuj sve ({employees.length})</button>
+        <button type="button" className="btn btn-secondary btn-sm" onClick={clearAll}>Odselektuj sve</button>
+        <div style={{ fontSize: 12, color: "var(--text-tertiary)", alignSelf: "center", marginLeft: "auto" }}>
+          {selected.size} selektovano
+        </div>
+      </div>
+      
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 4, maxHeight: 200, overflowY: "auto", border: "1px solid var(--border)", borderRadius: 8, padding: 8 }}>
+        {employees.map((emp) => {
+          const sel = selected.has(emp.id);
+          return (
+            <label key={emp.id} style={{ display: "flex", alignItems: "center", gap: 8, padding: "5px 8px", borderRadius: 6, cursor: "pointer", background: sel ? "#f1f5f9" : "transparent", fontSize: 12.5 }}>
+              <input type="checkbox" checked={sel} onChange={() => toggle(emp.id)} data-testid={`bulk-emp-${emp.id}`} />
+              <span style={{ fontWeight: 500 }}>{emp.ime} {emp.prezime}</span>
+              {emp.pozicija && <span style={{ fontSize: 11, color: "var(--text-tertiary)" }}>· {emp.pozicija}</span>}
+            </label>
+          );
+        })}
+      </div>
     </div>
   );
 }
