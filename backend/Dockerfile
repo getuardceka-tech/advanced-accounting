@@ -1,16 +1,19 @@
 # Dockerfile za Railway / Render / Fly.io deployment
 # Uključuje LibreOffice koji je potreban za DOCX → PDF konverziju
 
-FROM python:3.11-slim
+FROM python:3.11-slim-bookworm
 
 # Instaliraj LibreOffice + sve sistemske zavisnosti
-RUN apt-get update && apt-get install -y --no-install-recommends \
-    libreoffice \
+# Napomena: koristimo bookworm (stable) umjesto trixie + bez --no-install-recommends
+# jer libreoffice meta-paket zavisi od preporučenih paketa
+RUN apt-get update && apt-get install -y \
     libreoffice-writer \
+    libreoffice-core \
     fonts-liberation \
     fonts-dejavu \
     fontconfig \
     curl \
+    && apt-get clean \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
