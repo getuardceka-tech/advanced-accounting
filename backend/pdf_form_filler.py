@@ -56,11 +56,13 @@ def _find_label(page: fitz.Page, label_text: str) -> Optional[fitz.Rect]:
 
 
 def _fill_zahtjev_uzorkovanje(input_pdf: Path, output_pdf: Path, company: Dict[str, Any],
-                              agency: Dict[str, Any] = None) -> bool:
+                              agency: Dict[str, Any] = None,
+                              extras: Dict[str, Any] = None) -> bool:
     """Popuni Zahtjev za uzorkovanje. Koristi apsolutne koordinate izvučene iz user-ovih
     ručno popunjenih reference PDF-ova (BRIS, HRANA, VODA, BAZENI).
     """
     agency = agency or {}
+    extras = extras or {}
     doc = fitz.open(str(input_pdf))
     page = doc[0]
     
@@ -70,8 +72,12 @@ def _fill_zahtjev_uzorkovanje(input_pdf: Path, output_pdf: Path, company: Dict[s
     is_brisev = "brisev" in fname or "bris" in fname
     is_bazen = "bazen" in fname
     
-    naziv = company.get("naziv", "")
+    naziv = company.get("naziv", "")  # PUNI naziv firme za podnosioca zahtjeva
     naziv_skraceni = (company.get("naziv_skraceni") or "").strip() or naziv
+    # Naziv objekta: prvenstveno user input, inače skraćeni naziv firme
+    naziv_objekta = (extras.get("naziv_objekta") or "").strip() or naziv_skraceni
+    adresa_objekta = (extras.get("adresa_objekta") or "").strip() or company.get("adresa", "")
+    
     adresa = company.get("adresa", "")
     grad = company.get("grad", "") or "Ulcinj"
     pib = company.get("pib", "")
@@ -79,7 +85,7 @@ def _fill_zahtjev_uzorkovanje(input_pdf: Path, output_pdf: Path, company: Dict[s
     sifra_dj = company.get("sifra_djelatnosti", "")
     tel = company.get("telefon", "") or agency.get("telefon", "")
     email = company.get("email", "") or agency.get("email", "")
-    direktor = company.get("direktor_ime", "")
+    direktor = (extras.get("kontakt_osoba") or "").strip() or company.get("direktor_ime", "")
     
     FONT = 11
     # PyMuPDF insert_text koristi BASELINE y, dok user reference y0 = top of bbox.
@@ -88,10 +94,10 @@ def _fill_zahtjev_uzorkovanje(input_pdf: Path, output_pdf: Path, company: Dict[s
     
     if is_voda:
         # VODA layout — 2 kolone (lijevo + desno)
-        _draw_text(page, naziv_skraceni, 305, Y(192), fontsize=FONT, max_width=240)        # Podnosilac zahtjeva
-        _draw_text(page, naziv_skraceni, 156, Y(234), fontsize=FONT, max_width=220)        # Naziv objekta
+        _draw_text(page, naziv, 305, Y(192), fontsize=FONT, max_width=240)                 # Podnosilac zahtjeva — PUNI naziv
+        _draw_text(page, naziv_objekta, 156, Y(234), fontsize=FONT, max_width=220)         # Naziv objekta — user input
         _draw_text(page, sifra_dj, 470, Y(234), fontsize=FONT, max_width=100)              # Djelatnost
-        _draw_text(page, adresa, 121, Y(258), fontsize=FONT, max_width=240)                # Adresa
+        _draw_text(page, adresa_objekta, 121, Y(258), fontsize=FONT, max_width=240)        # Adresa
         _draw_text(page, grad, 428, Y(258), fontsize=FONT, max_width=130)                  # Grad
         _draw_text(page, pib, 95, Y(282), fontsize=FONT, max_width=240)                    # PIB
         _draw_text(page, pdv, 425, Y(282), fontsize=FONT, max_width=140)                   # PDV
@@ -101,20 +107,20 @@ def _fill_zahtjev_uzorkovanje(input_pdf: Path, output_pdf: Path, company: Dict[s
     
     elif is_hrana:
         # HRANA layout — single kolona
-        adresa_obj = f"{naziv_skraceni}, {adresa}".rstrip(", ")
-        _draw_text(page, adresa_obj, 95, Y(240), fontsize=FONT, max_width=420)             # Podaci o objektu
-        _draw_text(page, naziv, 80, Y(398), fontsize=FONT, max_width=460)                  # Naziv (puni)
-        _draw_text(page, adresa, 116, Y(419), fontsize=FONT, max_width=420)                # Adresa
+        adresa_obj = f"{naziv_objekta}, {adresa_objekta}".rstrip(", ")
+        _draw_text(page, adresa_obj, 95, Y(240), fontsize=FONT, max_width=420)             # Podaci o objektu (naziv objekta + adresa)
+        _draw_text(page, naziv, 80, Y(398), fontsize=FONT, max_width=460)                  # Naziv (PUNI — podnosilac zahtjeva)
+        _draw_text(page, adresa, 116, Y(419), fontsize=FONT, max_width=420)                # Adresa firme
         _draw_text(page, pib, 120, Y(439), fontsize=FONT, max_width=240)                   # PIB
         _draw_text(page, pdv, 120, Y(454), fontsize=FONT, max_width=240)                   # PDV
         _draw_text(page, tel, 137, Y(475), fontsize=FONT, max_width=400)                   # Kontakt tel
     
     elif is_brisev:
         # BRISEVA layout — single kolona
-        adresa_obj = f"{naziv_skraceni}, {adresa}".rstrip(", ")
-        _draw_text(page, adresa_obj, 91, Y(213), fontsize=FONT, max_width=420)             # Podaci o objektu
-        _draw_text(page, naziv_skraceni, 93, Y(313), fontsize=FONT, max_width=420)         # Naziv (institucija)
-        _draw_text(page, adresa, 119, Y(346), fontsize=FONT, max_width=420)                # Adresa
+        adresa_obj = f"{naziv_objekta}, {adresa_objekta}".rstrip(", ")
+        _draw_text(page, adresa_obj, 91, Y(213), fontsize=FONT, max_width=420)             # Podaci o objektu (naziv objekta)
+        _draw_text(page, naziv, 93, Y(313), fontsize=FONT, max_width=420)                  # Naziv (PUNI — podnosilac zahtjeva)
+        _draw_text(page, adresa, 119, Y(346), fontsize=FONT, max_width=420)                # Adresa firme
         _draw_text(page, pib, 121, Y(373), fontsize=FONT, max_width=240)                   # PIB
         _draw_text(page, pdv, 119, Y(403), fontsize=FONT, max_width=240)                   # PDV
         _draw_text(page, tel, 172, Y(431), fontsize=FONT, max_width=380)                   # Kontakt tel/FAX
@@ -472,7 +478,7 @@ def fill_pdf_template(template_filename: str, output_pdf: Path,
     
     tn = template_filename.lower()
     if "uzorkovanje" in tn:
-        return _fill_zahtjev_uzorkovanje(src, output_pdf, company, agency)
+        return _fill_zahtjev_uzorkovanje(src, output_pdf, company, agency, extras)
     elif "prijava zanatstva" in tn or "prijava_zanatstva" in tn:
         return _fill_prijava_zanatstva(src, output_pdf, company, agency, extras)
     elif "prijava trgovine" in tn or "prijava_trgovine" in tn:

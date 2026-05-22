@@ -441,6 +441,16 @@ export default function Documents() {
                     </div>
                   )}
                   
+                  {/* Extras za Zahtjev za uzorkovanje (BRIS / HRANA / VODA) */}
+                  {selectedTemplate && selectedTemplate.filename.toLowerCase().includes("uzorkovanje") && (
+                    <ExtrasZahtjev
+                      template={selectedTemplate}
+                      values={customFields}
+                      onChange={setCustomFields}
+                      company={companies.find(c => c.id === companyId)}
+                    />
+                  )}
+                  
                   {/* Extras za Prijava zanatstva i Prijava trgovine */}
                   {selectedTemplate && (
                     (selectedTemplate.filename.toLowerCase().includes("prijava zanatstva") ||
@@ -530,6 +540,76 @@ export default function Documents() {
           </div>
         </div>
       )}
+    </div>
+  );
+}
+
+
+function ExtrasZahtjev({ template, values, onChange, company }) {
+  const fn = (template?.filename || "").toLowerCase();
+  const isVoda = fn.includes("voda");
+  const isHrana = fn.includes("hrana");
+  const isBrisev = fn.includes("brisev") || fn.includes("bris");
+  
+  const u = (k, v) => onChange({ ...values, [k]: v });
+  
+  // Default naziv objekta: skraćeni naziv firme
+  const defaultObjName = company?.naziv_skraceni || company?.naziv || "";
+  const defaultObjAddr = company?.adresa || "";
+  
+  return (
+    <div style={{ marginTop: 8, marginBottom: 14 }}>
+      <div style={{ display: "flex", alignItems: "center", gap: 8, margin: "8px 0 10px 0", paddingBottom: 6, borderBottom: "1px solid var(--border)" }}>
+        <div style={{ width: 22, height: 22, borderRadius: 6, background: "#0f172a", color: "white", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 12, fontWeight: 700 }}>1</div>
+        <div style={{ fontSize: 13.5, fontWeight: 700, color: "var(--text-primary)", textTransform: "uppercase", letterSpacing: "0.04em" }}>Podaci o objektu</div>
+      </div>
+      
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginBottom: 10 }}>
+        <div className="field-group">
+          <label className="field-label">Naziv objekta *</label>
+          <input
+            className="input"
+            placeholder={defaultObjName ? `Npr. ${defaultObjName}` : "Naziv objekta"}
+            value={values.naziv_objekta ?? ""}
+            onChange={(e) => u("naziv_objekta", e.target.value)}
+            data-testid="zahtjev-naziv-objekta"
+            autoFocus
+          />
+          <div style={{ fontSize: 11, color: "var(--text-tertiary)", marginTop: 4 }}>
+            Ako objekat ima drugačiji naziv od firme — upiši taj naziv. Ako ostaviš prazno, koristi se skraćeni naziv firme.
+          </div>
+        </div>
+        <div className="field-group">
+          <label className="field-label">Adresa objekta</label>
+          <input
+            className="input"
+            placeholder={defaultObjAddr ? `Npr. ${defaultObjAddr}` : "Adresa objekta"}
+            value={values.adresa_objekta ?? ""}
+            onChange={(e) => u("adresa_objekta", e.target.value)}
+            data-testid="zahtjev-adresa-objekta"
+          />
+          <div style={{ fontSize: 11, color: "var(--text-tertiary)", marginTop: 4 }}>
+            Ostavi prazno za adresu iz profila firme.
+          </div>
+        </div>
+      </div>
+      
+      {isVoda && (
+        <div className="field-group" style={{ marginBottom: 10 }}>
+          <label className="field-label">Ime i prezime kontakt osobe</label>
+          <input
+            className="input"
+            placeholder={company?.direktor_ime ? `Default: ${company.direktor_ime}` : "Ime i prezime"}
+            value={values.kontakt_osoba ?? ""}
+            onChange={(e) => u("kontakt_osoba", e.target.value)}
+            data-testid="zahtjev-kontakt-osoba"
+          />
+        </div>
+      )}
+      
+      <div style={{ padding: 10, background: "#f0f9ff", borderRadius: 8, fontSize: 11.5, color: "#0c4a6e", marginTop: 6 }}>
+        <strong>ℹ️ Podnosilac zahtjeva</strong> će biti puni naziv firme: <em>{company?.naziv || "—"}</em>
+      </div>
     </div>
   );
 }
