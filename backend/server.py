@@ -2548,6 +2548,17 @@ async def root():
     return {"app": "Getuard Agency", "version": "1.0.0"}
 
 
+@api_router.get("/health")
+async def health_check():
+    """Health endpoint za Railway / Render / uptime monitoring."""
+    try:
+        # Provjeri da li MongoDB radi
+        await db.command("ping")
+        return {"status": "ok", "db": "connected"}
+    except Exception as e:
+        return {"status": "degraded", "db": "error", "error": str(e)[:100]}
+
+
 # Include the router in the main app
 app.include_router(api_router)
 
