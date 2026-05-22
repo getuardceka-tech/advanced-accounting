@@ -20,6 +20,7 @@ from pydantic import BaseModel, Field, ConfigDict
 from typing import List, Optional, Dict, Any
 from datetime import datetime, timezone, timedelta
 from docx import Document
+from docx.shared import Pt, Cm
 import copy
 
 ROOT_DIR = Path(__file__).parent
@@ -1696,10 +1697,8 @@ def _populate_employees_table(doc, employees: list, tname_lower: str, custom: di
         # Za raspored radnog vremena — NE popunjavaj smjene po default-u.
         # Klijent sam popunjava ćelije po danima (I, II, X, ...).
         if is_raspored and n_cols >= 10:
-            if smjena_default:
-                for d_idx in range(3, 10):
-                    cells[d_idx].text = smjena_default
-            # else: ostavi prazno
+            for d_idx in range(3, 10):
+                cells[d_idx].text = smjena_default  # "" osim ako klijent unese override
         elif is_raspored and n_cols >= 4:
             # Manji broj kolona — staviti samo pozicija
             pass
@@ -1710,6 +1709,26 @@ def _populate_employees_table(doc, employees: list, tname_lower: str, custom: di
         row = rows[extra_idx]
         # Ako je red prazan (samo rb), ostavi praznim — ne brišemo
         extra_idx += 1
+    
+    # Postavi font 12pt za cijelu tabelu (zaglavlje + svi redovi)
+    # po zahtjevu korisnika — za 4 Odluke (raspored / pauza / sedmični / godišnji).
+    for row in tbl.rows:
+        for cell in row.cells:
+            for para in cell.paragraphs:
+                runs = list(para.runs)
+                if not runs:
+                    # Prazna ćelija — dodaj prazan run sa 12pt da kad klijent kuca u Wordu, krene sa 12pt
+                    r = para.add_run("")
+                    try:
+                        r.font.size = Pt(12)
+                    except Exception:
+                        pass
+                else:
+                    for run in runs:
+                        try:
+                            run.font.size = Pt(12)
+                        except Exception:
+                            pass
 
 
 # Lista praznika Crne Gore (državni + vjerski)
