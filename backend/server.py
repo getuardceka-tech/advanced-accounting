@@ -1595,7 +1595,7 @@ def _build_replacements(company: dict, employee: Optional[dict], agency: dict, c
             repl["Podaci o objektu (navesti tačan naziv i adresu)________________________________________ _____________________________________________________________________________"] = \
                 f"Podaci o objektu: {company_naziv}, {adresa_full}".rstrip(", ")
     
-    # UGOVOR O POZAJMICI — iznos pozajmice + datum sklapanja (klijent unosi)
+    # UGOVOR O POZAJMICI — iznos pozajmice + datum sklapanja (klijent unosi) + žiro/banka
     if "pozajm" in tname_lower:
         # Datum sklapanja ugovora — iz custom polja (klijent ručno unosi).
         # Ako nije unesen, ostavlja crticu da klijent dopiše u Wordu.
@@ -1617,6 +1617,23 @@ def _build_replacements(company: dict, employee: Optional[dict], agency: dict, c
             repl["iznos od __________ €"] = f"iznos od {iznos_str} €"
             repl["iznos od __________"] = f"iznos od {iznos_str}"
             repl["__________ €"] = f"{iznos_str} €"
+        
+        # Član 7 — žiro-račun i banka iz baze firme.
+        # Žiro: globalna zamjena "535-26292-64" → company.ziro_racun već radi (linija ~1012),
+        # ali ako firma nema žiro/banku — ostavi crticu da klijent dopiše.
+        company_ziro = (company.get("ziro_racun") or "").strip()
+        company_banka = (company.get("banka") or "").strip()
+        if not company_ziro:
+            repl["žiro-račun 535-26292-64"] = "žiro-račun ____________________"
+            repl["535-26292-64"] = "____________________"
+        if company_banka:
+            repl["kod  PRVA BANKA"] = f"kod {company_banka}"
+            repl["kod PRVA BANKA"] = f"kod {company_banka}"
+            repl["PRVA BANKA"] = company_banka
+        else:
+            repl["kod  PRVA BANKA"] = "kod ____________________"
+            repl["kod PRVA BANKA"] = "kod ____________________"
+            repl["PRVA BANKA"] = "____________________"
     
     return repl
 
