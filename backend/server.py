@@ -1595,6 +1595,20 @@ def _build_replacements(company: dict, employee: Optional[dict], agency: dict, c
             repl["Podaci o objektu (navesti tačan naziv i adresu)________________________________________ _____________________________________________________________________________"] = \
                 f"Podaci o objektu: {company_naziv}, {adresa_full}".rstrip(", ")
     
+    # UGOVOR O POZAJMICI — iznos pozajmice iz custom polja zamjenjuje "__________" u Članu 1
+    if "pozajm" in tname_lower:
+        iznos_raw = custom.get("iznos_pozajmice")
+        if iznos_raw not in (None, "", 0):
+            try:
+                iznos_num = float(str(iznos_raw).replace(",", ".").replace("€", "").strip())
+                iznos_str = f"{iznos_num:,.2f}".replace(",", " ").replace(".", ",")
+            except Exception:
+                iznos_str = str(iznos_raw).strip()
+            # Zamijeni dugu liniju "__________" sa iznosom (u Članu 1)
+            repl["iznos od __________ €"] = f"iznos od {iznos_str} €"
+            repl["iznos od __________"] = f"iznos od {iznos_str}"
+            repl["__________ €"] = f"{iznos_str} €"
+    
     return repl
 
 

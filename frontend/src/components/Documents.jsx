@@ -599,8 +599,9 @@ function ExtrasOdluka({ template, values, onChange, companyId }) {
   const isTableTpl = ["rasporedu radnog", "sedmicnog odmora", "sedmičnog odmora", "godisnji odmor", "godišnji odmor", "koriscenje pauze", "korišćenje pauze"].some(k => fn.includes(k));
   const isMobing = fn.includes("mobing") || fn.includes("uznemiravanj");
   const isIzjavaOdgovornost = fn.includes("izjava") && (fn.includes("odgovornost") || fn.includes("pravim"));
+  const isPozajmica = fn.includes("pozajm");
   
-  const showAny = isPopust || isObavjestenjeRadno || isKomunalna || isPraznici || isTableTpl || isMobing || isIzjavaOdgovornost;
+  const showAny = isPopust || isObavjestenjeRadno || isKomunalna || isPraznici || isTableTpl || isMobing || isIzjavaOdgovornost || isPozajmica;
   if (!showAny) return null;
   
   const u = (k, v) => onChange({ ...values, [k]: v });
@@ -608,11 +609,34 @@ function ExtrasOdluka({ template, values, onChange, companyId }) {
   return (
     <div style={{ marginTop: 8, marginBottom: 14 }}>
       {isPopust && <PopustInput values={values} u={u} />}
+      {isPozajmica && <PozajmicaInput values={values} u={u} />}
       {isObavjestenjeRadno && <RadnoVrijemeInput values={values} u={u} />}
       {isKomunalna && <KomunalnaInput values={values} u={u} />}
       {isPraznici && <PrazniciPicker values={values} onChange={onChange} />}
       {isTableTpl && <EmployeesTablePreview companyId={companyId} values={values} u={u} fn={fn} />}
       {(isMobing || isIzjavaOdgovornost) && <BulkEmployeesPicker companyId={companyId} values={values} onChange={onChange} />}
+    </div>
+  );
+}
+
+function PozajmicaInput({ values, u }) {
+  return (
+    <div className="field-group" style={{ marginBottom: 12 }}>
+      <label className="field-label">Iznos pozajmice (EUR) <span style={{ color: "var(--accent)" }}>*</span></label>
+      <input
+        className="input"
+        type="number"
+        min="0" step="0.01"
+        placeholder="Npr. 5000"
+        value={values.iznos_pozajmice ?? ""}
+        onChange={(e) => u("iznos_pozajmice", e.target.value)}
+        data-testid="pozajmica-iznos-input"
+        style={{ maxWidth: 220 }}
+        autoFocus
+      />
+      <div style={{ fontSize: 11.5, color: "var(--text-tertiary)", marginTop: 4 }}>
+        Iznos koji zajmodavac daje zajmoprimcu — automatski popunjava crticu u Članu 1.
+      </div>
     </div>
   );
 }
