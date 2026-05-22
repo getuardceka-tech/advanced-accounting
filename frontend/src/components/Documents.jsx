@@ -60,7 +60,7 @@ export default function Documents() {
   });
   
   const filteredCompanies = useMemo(() => {
-    if (!companySearch.trim()) return companies;
+    if (!companySearch.trim()) return [];
     const s = companySearch.toLowerCase().trim();
     return companies.filter((c) =>
       (c.naziv || "").toLowerCase().includes(s) ||
@@ -243,7 +243,7 @@ export default function Documents() {
                 <>
                   <div className="field-group" style={{ marginBottom: 14 }}>
                     <label className="field-label">
-                      {selectedTemplate.is_pdf_form ? "Auto-popunjavanje iz klijenta" : "Firma *"} (pretraga po nazivu, PIB-u, direktoru)
+                      {selectedTemplate.is_pdf_form ? "Auto-popunjavanje iz klijenta" : "Firma *"} (ukucaj naziv, PIB ili direktora)
                     </label>
                     <input
                       type="text"
@@ -253,27 +253,37 @@ export default function Documents() {
                       onChange={(e) => setCompanySearch(e.target.value)}
                       data-testid="gen-company-search"
                       style={{ marginBottom: 6 }}
+                      autoFocus
                     />
-                    <select
-                      className="select"
-                      value={companyId}
-                      onChange={(e) => setCompanyId(e.target.value)}
-                      data-testid="gen-company-select"
-                      size={Math.min(8, Math.max(3, filteredCompanies.length))}
-                      style={{ height: "auto", paddingTop: 4, paddingBottom: 4 }}
-                    >
-                      {filteredCompanies.length === 0 && (
-                        <option disabled value="">Nema rezultata za "{companySearch}"</option>
-                      )}
-                      {filteredCompanies.map((c) => (
-                        <option key={c.id} value={c.id}>
-                          {c.naziv} {c.pib ? `· PIB ${c.pib}` : ""}
-                        </option>
-                      ))}
-                    </select>
-                    <div style={{ fontSize: 11.5, color: "var(--text-tertiary)", marginTop: 4 }}>
-                      Prikazano: {filteredCompanies.length} / {companies.length}
-                    </div>
+                    {!companySearch.trim() ? (
+                      <div style={{ padding: "12px 14px", border: "1px dashed var(--border)", borderRadius: 8, fontSize: 12.5, color: "var(--text-tertiary)", textAlign: "center" }}>
+                        Počni da kucaš da vidiš rezultate ({companies.length} firmi u bazi)
+                      </div>
+                    ) : filteredCompanies.length === 0 ? (
+                      <div style={{ padding: "12px 14px", border: "1px solid var(--border)", borderRadius: 8, fontSize: 12.5, color: "var(--text-tertiary)", textAlign: "center" }}>
+                        Nema rezultata za "{companySearch}"
+                      </div>
+                    ) : (
+                      <select
+                        className="select"
+                        value={companyId}
+                        onChange={(e) => setCompanyId(e.target.value)}
+                        data-testid="gen-company-select"
+                        size={Math.min(8, Math.max(3, filteredCompanies.length))}
+                        style={{ height: "auto", paddingTop: 4, paddingBottom: 4 }}
+                      >
+                        {filteredCompanies.map((c) => (
+                          <option key={c.id} value={c.id}>
+                            {c.naziv} {c.pib ? `· PIB ${c.pib}` : ""}
+                          </option>
+                        ))}
+                      </select>
+                    )}
+                    {companySearch.trim() && filteredCompanies.length > 0 && (
+                      <div style={{ fontSize: 11.5, color: "var(--text-tertiary)", marginTop: 4 }}>
+                        {filteredCompanies.length} {filteredCompanies.length === 1 ? "rezultat" : "rezultata"} pronađen{filteredCompanies.length === 1 ? "" : "o"}
+                      </div>
+                    )}
                   </div>
 
                   {employees.length > 0 && !selectedTemplate.is_pdf_form && (
