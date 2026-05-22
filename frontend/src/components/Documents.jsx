@@ -783,21 +783,21 @@ function EmployeesTablePreview({ companyId, values, u, fn }) {
       {isRaspored && (
         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginBottom: 10 }}>
           <div className="field-group">
-            <label className="field-label">Smjena oznaka (Pon-Sub)</label>
-            <input className="input" placeholder="I" value={values.smjena_oznaka ?? "I"} onChange={(e) => u("smjena_oznaka", e.target.value)} data-testid="smjena-input" style={{ maxWidth: 100 }} />
+            <label className="field-label">Smjena oznaka (opciono — ostavi prazno da klijent sam popuni)</label>
+            <input className="input" placeholder="prazno" value={values.smjena_oznaka ?? ""} onChange={(e) => u("smjena_oznaka", e.target.value)} data-testid="smjena-input" style={{ maxWidth: 140 }} />
           </div>
         </div>
       )}
       {isPauza && (
         <div className="field-group" style={{ marginBottom: 10 }}>
-          <label className="field-label">Vrijeme pauze (default za sve)</label>
-          <input className="input" placeholder="10:00-10:30h" value={values.pauza_default ?? "10:00-10:30h"} onChange={(e) => u("pauza_default", e.target.value)} data-testid="pauza-input" style={{ maxWidth: 200 }} />
+          <label className="field-label">Vrijeme pauze (opciono — ostavi prazno da klijent sam popuni)</label>
+          <input className="input" placeholder="prazno" value={values.pauza_default ?? ""} onChange={(e) => u("pauza_default", e.target.value)} data-testid="pauza-input" style={{ maxWidth: 200 }} />
         </div>
       )}
       {isSedmicni && (
         <div className="field-group" style={{ marginBottom: 10 }}>
-          <label className="field-label">Dan sedmičnog odmora (default)</label>
-          <input className="input" placeholder="NEDELJA" value={values.sedmicni_default ?? "NEDELJA"} onChange={(e) => u("sedmicni_default", e.target.value)} data-testid="sedmicni-input" style={{ maxWidth: 200 }} />
+          <label className="field-label">Dan sedmičnog odmora (opciono — ostavi prazno da klijent sam popuni)</label>
+          <input className="input" placeholder="prazno" value={values.sedmicni_default ?? ""} onChange={(e) => u("sedmicni_default", e.target.value)} data-testid="sedmicni-input" style={{ maxWidth: 200 }} />
         </div>
       )}
       {isGodisnji && (

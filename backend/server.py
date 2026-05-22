@@ -1664,8 +1664,9 @@ def _populate_employees_table(doc, employees: list, tname_lower: str, custom: di
     is_sedmicni = "sedmic" in tname_lower or "sedmič" in tname_lower
     is_godisnji = "godisnji" in tname_lower or "godišnji" in tname_lower
     
-    # Default radno vrijeme (Pon-Sub I smjena = 'I', Ned = 'X' / slobodan)
-    smjena_default = custom.get("smjena_oznaka") or "I"
+    # Smjene/pauza/sedmični odmor — NE popunjavaj po defaultu.
+    # Ostavi prazne ćelije da klijent sam popuni (po zahtjevu korisnika).
+    smjena_default = custom.get("smjena_oznaka") or ""
     
     # Loop kroz radnike, ako tabela nema dovoljno redova — dodaj
     for i, emp in enumerate(employees):
@@ -1685,16 +1686,20 @@ def _populate_employees_table(doc, employees: list, tname_lower: str, custom: di
             if is_raspored:
                 cells[2].text = pozicija  # Radno mjesto
             elif is_pauza:
-                cells[2].text = custom.get("pauza_default") or "10:00-10:30h"
+                # Klijent sam popunjava vrijeme pauze
+                cells[2].text = custom.get("pauza_default") or ""
             elif is_sedmicni:
-                cells[2].text = custom.get("sedmicni_default") or "NEDELJA"
+                # Klijent sam popunjava dan sedmičnog odmora
+                cells[2].text = custom.get("sedmicni_default") or ""
             elif is_godisnji:
                 cells[2].text = custom.get("godisnji_default") or ""
-        # Za raspored radnog vremena — popuni dane (kolone 3..9)
+        # Za raspored radnog vremena — NE popunjavaj smjene po default-u.
+        # Klijent sam popunjava ćelije po danima (I, II, X, ...).
         if is_raspored and n_cols >= 10:
-            for d_idx in range(3, 9):  # Pon-Sub
-                cells[d_idx].text = smjena_default
-            cells[9].text = "X"  # Nedjelja
+            if smjena_default:
+                for d_idx in range(3, 10):
+                    cells[d_idx].text = smjena_default
+            # else: ostavi prazno
         elif is_raspored and n_cols >= 4:
             # Manji broj kolona — staviti samo pozicija
             pass
