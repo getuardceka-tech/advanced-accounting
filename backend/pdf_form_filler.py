@@ -91,6 +91,7 @@ def _fill_zahtjev_uzorkovanje(input_pdf: Path, output_pdf: Path, company: Dict[s
     # PyMuPDF insert_text koristi BASELINE y, dok user reference y0 = top of bbox.
     # Pomak: baseline = y_top + fontsize → dodaj FONT pixela na sve y vrijednosti
     Y = lambda y: y + FONT
+    datum_danas = datetime.now(timezone.utc).strftime("%d.%m.%Y")
     
     if is_voda:
         # VODA layout — 2 kolone (lijevo + desno)
@@ -115,6 +116,11 @@ def _fill_zahtjev_uzorkovanje(input_pdf: Path, output_pdf: Path, company: Dict[s
         _draw_text(page, pib, 120, Y(439), fontsize=FONT, max_width=240)                   # PIB
         _draw_text(page, pdv, 120, Y(454), fontsize=FONT, max_width=240)                   # PDV
         _draw_text(page, tel, 137, Y(475), fontsize=FONT, max_width=400)                   # Kontakt tel
+        # Bottom block — auto-popunjeno iz firme (sjedi na underscore liniji)
+        _draw_text(page, adresa, 75, 672, fontsize=FONT, max_width=180)                    # Mjesto podnošenja zahtjeva (adresa firme)
+        _draw_text(page, direktor, 388, 672, fontsize=FONT, max_width=180)                 # Kontakt osoba (direktor)
+        _draw_text(page, datum_danas, 75, 697, fontsize=FONT, max_width=180)               # Datum (današnji)
+        _draw_text(page, tel, 388, 697, fontsize=FONT, max_width=180)                      # Broj telefona
     
     elif is_brisev:
         # BRISEVA layout — single kolona
@@ -125,6 +131,11 @@ def _fill_zahtjev_uzorkovanje(input_pdf: Path, output_pdf: Path, company: Dict[s
         _draw_text(page, pib, 121, Y(373), fontsize=FONT, max_width=240)                   # PIB
         _draw_text(page, pdv, 119, Y(403), fontsize=FONT, max_width=240)                   # PDV
         _draw_text(page, tel, 172, Y(431), fontsize=FONT, max_width=380)                   # Kontakt tel/FAX
+        # Bottom block — auto-popunjeno iz firme (sjedi na underscore liniji)
+        _draw_text(page, adresa, 75, 654, fontsize=FONT, max_width=200)                    # Mjesto podnošenja (adresa firme)
+        _draw_text(page, direktor, 420, 654, fontsize=FONT, max_width=180)                 # Kontakt osoba (direktor)
+        _draw_text(page, datum_danas, 75, 682, fontsize=FONT, max_width=200)               # Datum (današnji)
+        _draw_text(page, tel, 420, 682, fontsize=FONT, max_width=180)                      # Broj telefona
     
     else:
         # BAZENI ili fallback — koristi originalnu label-based logiku

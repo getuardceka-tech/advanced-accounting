@@ -1866,6 +1866,28 @@ async def delete_document_history_item(record_id: str, username: str = Depends(g
     return {"success": True}
 
 
+@api_router.get("/companies/{company_id}/objekti")
+async def list_company_objects(company_id: str, username: str = Depends(get_current_user)):
+    """Vraća listu prethodno korišćenih naziva objekata za datu firmu (iz istorije prijava)."""
+    docs = await db.generated_documents.find(
+        {"company_id": company_id, "custom_fields.naziv_objekta": {"$exists": True, "$ne": ""}},
+        {"_id": 0, "custom_fields": 1, "created_at": 1}
+    ).sort("created_at", -1).limit(50).to_list(length=50)
+    
+    # Deduplicate by naziv_objekta, preserve latest adresa_objekta
+    seen = {}
+    for d in docs:
+        cf = d.get("custom_fields") or {}
+        no = (cf.get("naziv_objekta") or "").strip()
+        if no and no not in seen:
+            seen[no] = {
+                "naziv_objekta": no,
+                "adresa_objekta": (cf.get("adresa_objekta") or "").strip(),
+                "last_used": d.get("created_at", ""),
+            }
+    return list(seen.values())
+
+
 @api_router.post("/documents/generate-aneks")
 async def generate_aneks(req: AneksRequest, username: str = Depends(get_current_user)):
     """Generiše aneks ugovora i opciono ažurira polja zaposlenog u bazi."""

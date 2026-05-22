@@ -548,10 +548,21 @@ export default function Documents() {
 function ExtrasZahtjev({ template, values, onChange, company }) {
   const fn = (template?.filename || "").toLowerCase();
   const isVoda = fn.includes("voda");
-  const isHrana = fn.includes("hrana");
-  const isBrisev = fn.includes("brisev") || fn.includes("bris");
+  
+  const [savedObjects, setSavedObjects] = useState([]);
+  
+  useEffect(() => {
+    if (!company?.id) { setSavedObjects([]); return; }
+    api.get(`/companies/${company.id}/objekti`)
+      .then((r) => setSavedObjects(r.data || []))
+      .catch(() => setSavedObjects([]));
+  }, [company?.id]);
   
   const u = (k, v) => onChange({ ...values, [k]: v });
+  
+  const useObject = (obj) => {
+    onChange({ ...values, naziv_objekta: obj.naziv_objekta, adresa_objekta: obj.adresa_objekta });
+  };
   
   // Default naziv objekta: skraćeni naziv firme
   const defaultObjName = company?.naziv_skraceni || company?.naziv || "";
@@ -563,6 +574,40 @@ function ExtrasZahtjev({ template, values, onChange, company }) {
         <div style={{ width: 22, height: 22, borderRadius: 6, background: "#0f172a", color: "white", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 12, fontWeight: 700 }}>1</div>
         <div style={{ fontSize: 13.5, fontWeight: 700, color: "var(--text-primary)", textTransform: "uppercase", letterSpacing: "0.04em" }}>Podaci o objektu</div>
       </div>
+      
+      {savedObjects.length > 0 && (
+        <div style={{ marginBottom: 12, padding: 10, background: "#fefce8", border: "1px solid #fde047", borderRadius: 8 }}>
+          <div style={{ fontSize: 11.5, fontWeight: 600, color: "#854d0e", marginBottom: 6, textTransform: "uppercase", letterSpacing: "0.04em" }}>
+            💾 Prethodno korišćeni objekti za ovu firmu
+          </div>
+          <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
+            {savedObjects.map((obj) => (
+              <button
+                key={obj.naziv_objekta}
+                type="button"
+                onClick={() => useObject(obj)}
+                data-testid={`obj-suggestion-${obj.naziv_objekta}`}
+                style={{
+                  padding: "5px 10px",
+                  borderRadius: 6,
+                  border: "1px solid #ca8a04",
+                  background: "white",
+                  color: "#854d0e",
+                  fontSize: 12,
+                  cursor: "pointer",
+                  fontWeight: 500,
+                  transition: "all 120ms",
+                }}
+                onMouseEnter={(e) => (e.currentTarget.style.background = "#fef9c3")}
+                onMouseLeave={(e) => (e.currentTarget.style.background = "white")}
+                title={obj.adresa_objekta ? `Adresa: ${obj.adresa_objekta}` : ""}
+              >
+                {obj.naziv_objekta}
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
       
       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginBottom: 10 }}>
         <div className="field-group">
@@ -576,7 +621,7 @@ function ExtrasZahtjev({ template, values, onChange, company }) {
             autoFocus
           />
           <div style={{ fontSize: 11, color: "var(--text-tertiary)", marginTop: 4 }}>
-            Ako objekat ima drugačiji naziv od firme — upiši taj naziv. Ako ostaviš prazno, koristi se skraćeni naziv firme.
+            Sistem će zapamtiti ovaj objekat za buduće prijave ove firme.
           </div>
         </div>
         <div className="field-group">
@@ -608,7 +653,7 @@ function ExtrasZahtjev({ template, values, onChange, company }) {
       )}
       
       <div style={{ padding: 10, background: "#f0f9ff", borderRadius: 8, fontSize: 11.5, color: "#0c4a6e", marginTop: 6 }}>
-        <strong>ℹ️ Podnosilac zahtjeva</strong> će biti puni naziv firme: <em>{company?.naziv || "—"}</em>
+        <strong>ℹ️ Auto-popunjeno:</strong> Podnosilac zahtjeva = puni naziv firme · Mjesto podnošenja = adresa firme · Kontakt osoba = direktor · Datum = današnji · Telefon = iz profila firme.
       </div>
     </div>
   );
