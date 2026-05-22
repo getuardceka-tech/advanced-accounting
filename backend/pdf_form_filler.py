@@ -57,54 +57,92 @@ def _find_label(page: fitz.Page, label_text: str) -> Optional[fitz.Rect]:
 
 def _fill_zahtjev_uzorkovanje(input_pdf: Path, output_pdf: Path, company: Dict[str, Any],
                               agency: Dict[str, Any] = None) -> bool:
-    """Popuni Zahtjev za uzorkovanje (BRISEVA / HRANA / VODA / BAZENI)."""
+    """Popuni Zahtjev za uzorkovanje. Koristi apsolutne koordinate izvučene iz user-ovih
+    ručno popunjenih reference PDF-ova (BRIS, HRANA, VODA, BAZENI).
+    """
     agency = agency or {}
     doc = fitz.open(str(input_pdf))
     page = doc[0]
     
+    fname = input_pdf.name.lower()
+    is_voda = "voda" in fname
+    is_hrana = "hrana" in fname
+    is_brisev = "brisev" in fname or "bris" in fname
+    is_bazen = "bazen" in fname
+    
     naziv = company.get("naziv", "")
-    naziv_skraceni = company.get("naziv_skraceni") or naziv
+    naziv_skraceni = (company.get("naziv_skraceni") or "").strip() or naziv
     adresa = company.get("adresa", "")
-    grad = company.get("grad", "")
+    grad = company.get("grad", "") or "Ulcinj"
     pib = company.get("pib", "")
-    pdv = company.get("pdv_broj", "")
+    pdv = company.get("pdv_broj", "") or ""
+    sifra_dj = company.get("sifra_djelatnosti", "")
     tel = company.get("telefon", "") or agency.get("telefon", "")
+    email = company.get("email", "") or agency.get("email", "")
+    direktor = company.get("direktor_ime", "")
     
-    adresa_full = f"{adresa}, {grad}" if adresa and grad else (adresa or grad or "")
     FONT = 11
+    # PyMuPDF insert_text koristi BASELINE y, dok user reference y0 = top of bbox.
+    # Pomak: baseline = y_top + fontsize → dodaj FONT pixela na sve y vrijednosti
+    Y = lambda y: y + FONT
     
-    # 1) "Podaci o objektu": ispod ili pored
-    lbl = _find_label(page, "Podaci o objektu")
-    if lbl:
-        _draw_text(page, f"{naziv_skraceni}, {adresa_full}".rstrip(", "),
-                   lbl.x1 + 8, lbl.y1 - 1, fontsize=FONT, max_width=420)
+    if is_voda:
+        # VODA layout — 2 kolone (lijevo + desno)
+        _draw_text(page, naziv_skraceni, 305, Y(192), fontsize=FONT, max_width=240)        # Podnosilac zahtjeva
+        _draw_text(page, naziv_skraceni, 156, Y(234), fontsize=FONT, max_width=220)        # Naziv objekta
+        _draw_text(page, sifra_dj, 470, Y(234), fontsize=FONT, max_width=100)              # Djelatnost
+        _draw_text(page, adresa, 121, Y(258), fontsize=FONT, max_width=240)                # Adresa
+        _draw_text(page, grad, 428, Y(258), fontsize=FONT, max_width=130)                  # Grad
+        _draw_text(page, pib, 95, Y(282), fontsize=FONT, max_width=240)                    # PIB
+        _draw_text(page, pdv, 425, Y(282), fontsize=FONT, max_width=140)                   # PDV
+        _draw_text(page, direktor, 226, Y(308), fontsize=FONT, max_width=320)              # Ime kontakt osobe
+        _draw_text(page, tel, 133, Y(331), fontsize=FONT, max_width=240)                   # Broj telefona
+        _draw_text(page, email, 426, Y(335), fontsize=FONT, max_width=140)                 # e-mail
     
-    # 2) "Naziv (institucija, firma, pravno/fizičko lice i sl.)" — ispod te labele
-    lbl = _find_label(page, "Naziv (institucija")
-    if lbl:
-        _draw_text(page, naziv, lbl.x0 - 153, lbl.y1 + 16, fontsize=FONT, max_width=440)
+    elif is_hrana:
+        # HRANA layout — single kolona
+        adresa_obj = f"{naziv_skraceni}, {adresa}".rstrip(", ")
+        _draw_text(page, adresa_obj, 95, Y(240), fontsize=FONT, max_width=420)             # Podaci o objektu
+        _draw_text(page, naziv, 80, Y(398), fontsize=FONT, max_width=460)                  # Naziv (puni)
+        _draw_text(page, adresa, 116, Y(419), fontsize=FONT, max_width=420)                # Adresa
+        _draw_text(page, pib, 120, Y(439), fontsize=FONT, max_width=240)                   # PIB
+        _draw_text(page, pdv, 120, Y(454), fontsize=FONT, max_width=240)                   # PDV
+        _draw_text(page, tel, 137, Y(475), fontsize=FONT, max_width=400)                   # Kontakt tel
     
-    # 3) "Adresa:" — desno od labele
-    lbl = _find_label(page, "Adresa:")
-    if lbl:
-        _draw_text(page, adresa_full, lbl.x1 + 4, lbl.y1 - 1, fontsize=FONT, max_width=420)
+    elif is_brisev:
+        # BRISEVA layout — single kolona
+        adresa_obj = f"{naziv_skraceni}, {adresa}".rstrip(", ")
+        _draw_text(page, adresa_obj, 91, Y(213), fontsize=FONT, max_width=420)             # Podaci o objektu
+        _draw_text(page, naziv_skraceni, 93, Y(313), fontsize=FONT, max_width=420)         # Naziv (institucija)
+        _draw_text(page, adresa, 119, Y(346), fontsize=FONT, max_width=420)                # Adresa
+        _draw_text(page, pib, 121, Y(373), fontsize=FONT, max_width=240)                   # PIB
+        _draw_text(page, pdv, 119, Y(403), fontsize=FONT, max_width=240)                   # PDV
+        _draw_text(page, tel, 172, Y(431), fontsize=FONT, max_width=380)                   # Kontakt tel/FAX
     
-    # 4) "PIB:" — desno od labele
-    lbl = _find_label(page, "PIB:")
-    if lbl:
-        _draw_text(page, pib, lbl.x1 + 4, lbl.y1 - 1, fontsize=FONT, max_width=200)
-    
-    # 5) "PDV:" — desno od labele
-    lbl = _find_label(page, "PDV:")
-    if lbl:
-        _draw_text(page, pdv or "", lbl.x1 + 4, lbl.y1 - 1, fontsize=FONT, max_width=200)
-    
-    # 6) "Kontakt tel/FAX:" (BRISEVA/VODA) ili "Kontakt tel:" (HRANA)
-    for tel_label in ["Kontakt tel/FAX:", "Kontakt tel:"]:
-        lbl = _find_label(page, tel_label)
+    else:
+        # BAZENI ili fallback — koristi originalnu label-based logiku
+        adresa_full = f"{adresa}, {grad}" if adresa and grad else (adresa or grad or "")
+        lbl = _find_label(page, "Podaci o objektu")
         if lbl:
-            _draw_text(page, tel, lbl.x1 + 4, lbl.y1 - 1, fontsize=FONT, max_width=400)
-            break
+            _draw_text(page, f"{naziv_skraceni}, {adresa_full}".rstrip(", "),
+                       lbl.x1 + 8, lbl.y1 - 1, fontsize=FONT, max_width=420)
+        lbl = _find_label(page, "Naziv (institucija")
+        if lbl:
+            _draw_text(page, naziv, lbl.x0 - 153, lbl.y1 + 16, fontsize=FONT, max_width=440)
+        lbl = _find_label(page, "Adresa:")
+        if lbl:
+            _draw_text(page, adresa_full, lbl.x1 + 4, lbl.y1 - 1, fontsize=FONT, max_width=420)
+        lbl = _find_label(page, "PIB:")
+        if lbl:
+            _draw_text(page, pib, lbl.x1 + 4, lbl.y1 - 1, fontsize=FONT, max_width=200)
+        lbl = _find_label(page, "PDV:")
+        if lbl:
+            _draw_text(page, pdv or "", lbl.x1 + 4, lbl.y1 - 1, fontsize=FONT, max_width=200)
+        for tel_label in ["Kontakt tel/FAX:", "Kontakt tel:"]:
+            lbl = _find_label(page, tel_label)
+            if lbl:
+                _draw_text(page, tel, lbl.x1 + 4, lbl.y1 - 1, fontsize=FONT, max_width=400)
+                break
     
     doc.save(str(output_pdf))
     doc.close()
