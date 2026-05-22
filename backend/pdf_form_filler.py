@@ -255,12 +255,20 @@ def _fill_prijava_trgovine(input_pdf: Path, output_pdf: Path, company: Dict[str,
     
     # ============ PAGE 1 ============
     
-    # Tip prijave: X (pozicija nakon "trgovine 1)" / "iz prijave2)")
+    # Tip prijave: X — odmah pored kratke crte poslije "trgovine 1)" / "iz prijave2)"
     tip = (extras.get("tip_prijave") or "pocetak").lower()
     if tip == "pocetak":
-        _draw_text(page1, "X", 482, 156, fontsize=13, max_width=20)
+        lbl = _find_label(page1, "-početak obavljanja trgovine 1)")
+        x_pos = (lbl.x1 + 28) if lbl else 400
+        y_pos = (lbl.y1 - 1) if lbl else 156
+        _draw_text(page1, "X", x_pos, y_pos, fontsize=13, max_width=20)
     else:
-        _draw_text(page1, "X", 482, 171, fontsize=13, max_width=20)
+        lbl = _find_label(page1, "-promjena  podataka iz prijave2)")
+        if not lbl:
+            lbl = _find_label(page1, "promjena  podataka iz prijave")
+        x_pos = (lbl.x1 + 28) if lbl else 404
+        y_pos = (lbl.y1 - 1) if lbl else 171
+        _draw_text(page1, "X", x_pos, y_pos, fontsize=13, max_width=20)
     
     # 1.1. Naziv (wraps to 2 lines if long)
     _draw_text(page1, naziv, 182, 220, fontsize=FONT, max_width=380)
@@ -293,21 +301,27 @@ def _fill_prijava_trgovine(input_pdf: Path, output_pdf: Path, company: Dict[str,
     tel_line = ", ".join(x for x in [tel, email] if x)
     _draw_text(page1, tel_line, 326, 470, fontsize=FONT, max_width=230)
     
-    # Vrsta trgovine — X uz odgovarajuću liniju
+    # Vrsta trgovine — X iza odgovarajuće labele + Vrsta robe text na istom redu
     vrsta_trg = (extras.get("vrsta_trgovine") or "").lower()
-    vrsta_x_pos = {
-        "veliko": ("X", 244, 554),     # -trgovina na veliko
-        "malo": ("X", 244, 597),       # -trgovina na malo
-        "distanciona": ("X", 244, 641), # Distanciona
-        "usluge": ("X", 244, 684),     # -trgovinske usluge
+    vrsta_map = {
+        "veliko": "-trgovina na veliko",
+        "malo": "-trgovina na malo",
+        "distanciona": "Distanciona",
+        "usluge": "-trgovinske usluge",
     }
-    for k, (sym, x, y) in vrsta_x_pos.items():
+    vrsta_robe_y = None
+    for k, label_text in vrsta_map.items():
         if k in vrsta_trg:
-            _draw_text(page1, sym, x, y, fontsize=13, max_width=20)
+            lbl = _find_label(page1, label_text)
+            if lbl:
+                # X odmah poslije labele
+                _draw_text(page1, "X", lbl.x1 + 16, lbl.y1 - 1, fontsize=13, max_width=20)
+                vrsta_robe_y = lbl.y1 - 1
+            break
     
-    # Vrsta robe / trgovinske usluge (desna kolona)
-    if extras.get("vrsta_robe"):
-        _draw_text(page1, extras["vrsta_robe"], 304, 597, fontsize=FONT, max_width=200)
+    # Vrsta robe / trgovinske usluge — text u DESNOJ koloni, ISTI red kao X za vrstu trgovine
+    if extras.get("vrsta_robe") and vrsta_robe_y:
+        _draw_text(page1, extras["vrsta_robe"], 304, vrsta_robe_y, fontsize=FONT, max_width=240)
     
     # 3.1 Sjedište prostorije + adresa objekta + naziv
     sjediste_obj = extras.get("sjediste_objekta") or grad
@@ -322,27 +336,35 @@ def _fill_prijava_trgovine(input_pdf: Path, output_pdf: Path, company: Dict[str,
     if doc.page_count > 1:
         page2 = doc[1]
         
-        # Y pozicije iz reference PDF-a (m² label baseline + 11pt):
-        prostor_y = {
-            "m2_prodavnica":     50,
-            "m2_skladiste":      71,
-            "m2_stovariste":     93,
-            "m2_drugo":          114,
-            "m2_usluge_prostor": 199,
-            "m2_pijaca":         262,
-        }
-        for key, y_pos in prostor_y.items():
+        # Vrsta prostorije + m² — X na 20-25px posle stvarne dužine labele
+        prostor_data = [
+            ("m2_prodavnica",     "-prodavnica"),
+            ("m2_skladiste",      "-skladište"),
+            ("m2_stovariste",     "-stovarište"),
+            ("m2_drugo",          "-drugo prodajno mesto"),
+            ("m2_usluge_prostor", "prostorija za obavljanje trgovinskih usluga"),
+            ("m2_pijaca",         "pijaca i dr.prostori"),
+        ]
+        for key, label_text in prostor_data:
             m2_val = extras.get(key)
             if m2_val:
-                _draw_text(page2, "X", 188, y_pos, fontsize=13, max_width=20)
-                _draw_text(page2, str(m2_val), 479, y_pos, fontsize=FONT, max_width=40)
+                lbl = _find_label(page2, label_text)
+                if lbl:
+                    _draw_text(page2, "X", lbl.x1 + 22, lbl.y1 - 1, fontsize=13, max_width=20)
+                    _draw_text(page2, str(m2_val), 479, lbl.y1 - 1, fontsize=FONT, max_width=40)
         
-        # Lokacija (u zatvorenom / na otvorenom / na pijaci)
+        # Lokacija (u zatvorenom / na otvorenom / na pijaci) — X odmah poslije labele
         lokacija = (extras.get("lokacija") or "").lower()
-        loc_y = {"zatvor": 135, "otvoren": 156, "pijac": 177}
-        for k, y in loc_y.items():
+        loc_map = {
+            "zatvor":  "u zatvorenom prostoru",
+            "otvoren": "na otvorenom prostoru",
+            "pijac":   "na pijaci",
+        }
+        for k, label_text in loc_map.items():
             if k in lokacija:
-                _draw_text(page2, "X", 158, y, fontsize=13, max_width=20)
+                lbl = _find_label(page2, label_text)
+                if lbl:
+                    _draw_text(page2, "X", lbl.x1 + 22, lbl.y1 - 1, fontsize=13, max_width=20)
         
         # 5. Datum početka rada
         datum_pocetka = extras.get("datum_pocetka_rada", "")
