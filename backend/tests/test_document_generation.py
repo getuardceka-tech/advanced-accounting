@@ -295,9 +295,11 @@ class TestMsg292DatumBehavior:
 
 class TestConvertedFromPdf:
     def _naziv_present(self, text, company):
-        n = (company.get("naziv") or "").upper()
-        ns = (company.get("naziv_skraceni") or "").upper()
-        t = text.upper()
+        # Normalize whitespace (PDF embedded TTF fonts may use NBSP \xa0 for spaces)
+        norm = lambda s: " ".join((s or "").split()).upper()
+        n = norm(company.get("naziv"))
+        ns = norm(company.get("naziv_skraceni"))
+        t = norm(text)
         return n and (n in t or (ns and ns in t) or n.split()[0] in t)
 
     def test_prijava_zanatstva(self, auth_headers, test_company):

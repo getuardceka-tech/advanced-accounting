@@ -120,7 +120,27 @@ def _fill_prijava_zanatstva(input_pdf: Path, output_pdf: Path, company: Dict[str
     doc = fitz.open(str(input_pdf))
     page1 = doc[0]
     
-    naziv = company.get("naziv", "")
+    # PRIJAVA ZANATSTVA — koristi skraćeni naziv samo ako je puni predugačak za štampu
+    # Limit: ~50 chars za 1 red. Ako je duže, pokušaj redom: naziv_skraceni (ako kratak) → auto-skratiti → wrap
+    naziv_full = company.get("naziv", "")
+    naziv_skraceni = (company.get("naziv_skraceni") or "").strip()
+    NAZIV_LIMIT = 50
+    
+    if len(naziv_full) <= NAZIV_LIMIT:
+        naziv = naziv_full
+    elif naziv_skraceni and len(naziv_skraceni) <= NAZIV_LIMIT:
+        naziv = naziv_skraceni
+    else:
+        # Auto-skrati: izvuci dio između navodnika + suffix DOO/AD
+        import re
+        m = re.search(r'"([^"]+)"', naziv_full)
+        suffix_m = re.search(r'\b(D\.O\.O\.?|DOO|AD|A\.D\.?)\b', naziv_full.upper())
+        suffix = suffix_m.group(1).replace(".", "") if suffix_m else ""
+        if m:
+            naziv = f'{suffix} {m.group(1)}'.strip()
+        else:
+            naziv = naziv_full[:NAZIV_LIMIT].rstrip(", ") + "…"
+    
     adresa = company.get("adresa", "")
     grad = company.get("grad", "") or "Ulcinj"
     pib = company.get("pib", "")
@@ -140,12 +160,20 @@ def _fill_prijava_zanatstva(input_pdf: Path, output_pdf: Path, company: Dict[str
     # Header datum: ostavljamo prazno — user obično popunjava ručno
     # (Br./Nr.: 08- ___ i Ulcinj/Ulqin, ___ ostaju prazni)
     
-    # Tip prijave: X
+    # Tip prijave: X — desno od kraja BILINGUAL naslova, na crtici ___
     tip = (extras.get("tip_prijave") or "pocetak").lower()
     if tip == "pocetak":
-        _draw_text(page1, "X", 484, 313, fontsize=13, max_width=20)
+        # "ushtrimit të zejtarisë 1)" je kraj 1. reda 
+        ext = _find_label(page1, "ushtrimit të zejtarisë 1)") or _find_label(page1, "zejtarisë 1)")
+        x_pos = (ext.x1 + 15) if ext else 484
+        y_pos = (ext.y1 - 1) if ext else 313
+        _draw_text(page1, "X", x_pos, y_pos, fontsize=13, max_width=20)
     else:
-        _draw_text(page1, "X", 484, 327, fontsize=13, max_width=20)
+        # "fletëparaqitja 2)" je kraj 2. reda
+        ext = _find_label(page1, "fletëparaqitja 2)") or _find_label(page1, "fletëparaqitja")
+        x_pos = (ext.x1 + 15) if ext else 546
+        y_pos = (ext.y1 - 1) if ext else 327
+        _draw_text(page1, "X", x_pos, y_pos, fontsize=13, max_width=20)
     
     # 1.1. Naziv/ime
     _draw_text(page1, naziv, 171, 369, fontsize=FONT, max_width=340)
@@ -237,7 +265,9 @@ def _fill_prijava_trgovine(input_pdf: Path, output_pdf: Path, company: Dict[str,
     doc = fitz.open(str(input_pdf))
     page1 = doc[0]
     
+    # PRIJAVA TRGOVINE — UVIJEK koristi puni naziv (ima dovoljno prostora za 2 reda)
     naziv = company.get("naziv", "")
+    
     adresa = company.get("adresa", "")
     grad = company.get("grad", "") or "Ulcinj"
     pib = company.get("pib", "")
@@ -255,20 +285,20 @@ def _fill_prijava_trgovine(input_pdf: Path, output_pdf: Path, company: Dict[str,
     
     # ============ PAGE 1 ============
     
-    # Tip prijave: X — odmah pored kratke crte poslije "trgovine 1)" / "iz prijave2)"
+    # Tip prijave: X — manji, lijevo, TAČNO na crtici ___ poslije "trgovine 1)" / "iz prijave2)"
     tip = (extras.get("tip_prijave") or "pocetak").lower()
     if tip == "pocetak":
         lbl = _find_label(page1, "-početak obavljanja trgovine 1)")
-        x_pos = (lbl.x1 + 28) if lbl else 400
+        x_pos = (lbl.x1 + 12) if lbl else 385
         y_pos = (lbl.y1 - 1) if lbl else 156
-        _draw_text(page1, "X", x_pos, y_pos, fontsize=13, max_width=20)
+        _draw_text(page1, "X", x_pos, y_pos, fontsize=12, max_width=20)
     else:
         lbl = _find_label(page1, "-promjena  podataka iz prijave2)")
         if not lbl:
             lbl = _find_label(page1, "promjena  podataka iz prijave")
-        x_pos = (lbl.x1 + 28) if lbl else 404
+        x_pos = (lbl.x1 + 12) if lbl else 388
         y_pos = (lbl.y1 - 1) if lbl else 171
-        _draw_text(page1, "X", x_pos, y_pos, fontsize=13, max_width=20)
+        _draw_text(page1, "X", x_pos, y_pos, fontsize=12, max_width=20)
     
     # 1.1. Naziv (wraps to 2 lines if long)
     _draw_text(page1, naziv, 182, 220, fontsize=FONT, max_width=380)

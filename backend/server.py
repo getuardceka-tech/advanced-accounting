@@ -1745,13 +1745,16 @@ async def generate_document(req: DocumentGenerateRequest, username: str = Depend
             "filename": output_filename,
             "pdf_filename": output_filename,
             "template_filename": req.template_filename,
+            "template": req.template_filename,
             "company_id": req.company_id,
+            "company_naziv": company.get("naziv", ""),
             "employee_id": req.employee_id,
+            "custom_fields": req.custom_fields or {},
             "created_by": username,
             "created_at": datetime.now(timezone.utc).isoformat(),
         }
-        await db.generated_documents.insert_one(record)
-        return {"success": True, "filename": output_filename, "pdf_filename": output_filename}
+        await db.generated_documents.insert_one(dict(record))
+        return {"success": True, "filename": output_filename, "pdf_filename": output_filename, "record": {k: v for k, v in record.items() if k != "_id"}}
     
     if template_path.suffix.lower() != '.docx':
         raise HTTPException(400, "Trenutno se podržava samo .docx generisanje")
@@ -1782,10 +1785,12 @@ async def generate_document(req: DocumentGenerateRequest, username: str = Depend
         "filename": output_filename,
         "pdf_filename": pdf_filename,
         "template": req.template_filename,
+        "template_filename": req.template_filename,
         "company_id": req.company_id,
         "company_naziv": company.get("naziv", ""),
         "employee_id": req.employee_id,
         "employee_naziv": f"{employee.get('ime','')} {employee.get('prezime','')}".strip() if employee else "",
+        "custom_fields": req.custom_fields or {},
         "created_at": datetime.now(timezone.utc).isoformat(),
         "created_by": username
     }
@@ -1797,8 +1802,68 @@ async def generate_document(req: DocumentGenerateRequest, username: str = Depend
         "pdf_filename": pdf_filename,
         "download_url": f"/api/documents/download/{output_filename}",
         "preview_url": f"/api/documents/preview/{pdf_filename}",
-        "record": record
+        "record": {k: v for k, v in record.items() if k != "_id"}
     }
+
+
+@api_router.get("/documents/history")
+async def list_document_history(
+    company_id: Optional[str] = None,
+    template: Optional[str] = None,
+    limit: int = 200,
+    username: str = Depends(get_current_user)
+):
+    """Lista svih generisanih dokumenata, filter po firmi/šablonu."""
+    query = {}
+    if company_id:
+        query["company_id"] = company_id
+    if template:
+        query["$or"] = [{"template": template}, {"template_filename": template}]
+    
+    docs = await db.generated_documents.find(query, {"_id": 0}).sort("created_at", -1).limit(limit).to_list(length=limit)
+    
+    # Enrich sa firma nazivom ako fali u recordu (legacy zapisi)
+    for d in docs:
+        if not d.get("company_naziv") and d.get("company_id"):
+            c = await db.companies.find_one({"id": d["company_id"]}, {"_id": 0, "naziv": 1, "naziv_skraceni": 1})
+            if c:
+                d["company_naziv"] = c.get("naziv_skraceni") or c.get("naziv", "")
+        # Normalizuj template field
+        if not d.get("template_filename"):
+            d["template_filename"] = d.get("template", "")
+    
+    return docs
+
+
+@api_router.get("/documents/history/{record_id}")
+async def get_document_history_item(record_id: str, username: str = Depends(get_current_user)):
+    """Dobij detalje (uključujući custom_fields) za jedan zapis."""
+    rec = await db.generated_documents.find_one({"id": record_id}, {"_id": 0})
+    if not rec:
+        raise HTTPException(404, "Zapis nije pronađen")
+    if not rec.get("template_filename"):
+        rec["template_filename"] = rec.get("template", "")
+    return rec
+
+
+@api_router.delete("/documents/history/{record_id}")
+async def delete_document_history_item(record_id: str, username: str = Depends(get_current_user)):
+    """Obriši zapis (i pripadajući fajl ako postoji)."""
+    rec = await db.generated_documents.find_one({"id": record_id}, {"_id": 0})
+    if not rec:
+        raise HTTPException(404, "Zapis nije pronađen")
+    # Obriši fajlove
+    for fn_key in ["filename", "pdf_filename"]:
+        fn = rec.get(fn_key)
+        if fn:
+            fp = GENERATED_DIR / fn
+            if fp.exists():
+                try:
+                    fp.unlink()
+                except Exception:
+                    pass
+    await db.generated_documents.delete_one({"id": record_id})
+    return {"success": True}
 
 
 @api_router.post("/documents/generate-aneks")

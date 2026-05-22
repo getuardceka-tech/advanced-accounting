@@ -2,7 +2,7 @@ import { useEffect, useState, useMemo } from "react";
 import { useSearchParams } from "react-router-dom";
 import {
   FileText, MagnifyingGlass, DownloadSimple, X, Check, Spinner, Sparkle,
-  CaretDown, FileDoc, FilePdf, Printer,
+  CaretDown, FileDoc, FilePdf, Printer, ClockCounterClockwise, Trash, PencilSimple,
 } from "@phosphor-icons/react";
 import api, { getToken, API } from "@/lib/api";
 
@@ -14,6 +14,11 @@ export default function Documents() {
   const [companies, setCompanies] = useState([]);
   const [employees, setEmployees] = useState([]);
   const [loading, setLoading] = useState(true);
+
+  const [tab, setTab] = useState("sabloni"); // sabloni | istorija
+  const [history, setHistory] = useState([]);
+  const [historyLoading, setHistoryLoading] = useState(false);
+  const [historyCompanyFilter, setHistoryCompanyFilter] = useState("");
 
   const [search, setSearch] = useState("");
   const [category, setCategory] = useState("all");
@@ -35,6 +40,24 @@ export default function Documents() {
       .catch(() => {})
       .finally(() => setLoading(false));
   }, []);
+
+  const loadHistory = async () => {
+    setHistoryLoading(true);
+    try {
+      const params = historyCompanyFilter ? `?company_id=${historyCompanyFilter}` : "";
+      const res = await api.get(`/documents/history${params}`);
+      setHistory(res.data);
+    } catch {
+      setHistory([]);
+    } finally {
+      setHistoryLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    if (tab === "istorija") loadHistory();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [tab, historyCompanyFilter]);
 
   useEffect(() => {
     if (companyId) {
@@ -78,6 +101,34 @@ export default function Documents() {
     setGenResult(null);
   };
 
+  // Pri kliku na zapis u istoriji — učitaj sve i otvori modal sa popunjenim poljima
+  const openFromHistory = (record) => {
+    const tpl = templates.find((t) => t.filename === record.template_filename || t.filename === record.template);
+    if (!tpl) {
+      alert("Šablon više ne postoji u sistemu");
+      return;
+    }
+    setSelectedTemplate(tpl);
+    setCompanyId(record.company_id);
+    setCompanySearch(record.company_naziv || "");
+    setEmployeeId(record.employee_id || "");
+    // Učitaj prethodne vrijednosti, ali postavi tip = "promjena" da odmah pravi promjenu podataka
+    setCustomFields({ ...(record.custom_fields || {}), tip_prijave: "promjena" });
+    setGenError("");
+    setGenResult(null);
+    setTab("sabloni");
+  };
+
+  const deleteHistoryItem = async (id) => {
+    if (!window.confirm("Sigurno želiš da obrišeš ovaj zapis?")) return;
+    try {
+      await api.delete(`/documents/history/${id}`);
+      setHistory((h) => h.filter((r) => r.id !== id));
+    } catch {
+      alert("Greška pri brisanju");
+    }
+  };
+
   const generate = async () => {
     if (!selectedTemplate || !companyId) {
       setGenError("Odaberite firmu");
@@ -93,6 +144,8 @@ export default function Documents() {
         custom_fields: customFields,
       });
       setGenResult(resp.data);
+      // Refresh history u pozadini
+      if (tab === "istorija") loadHistory();
     } catch (e) {
       setGenError(e.response?.data?.detail || "Greška pri generisanju");
     } finally {
@@ -111,6 +164,67 @@ export default function Documents() {
         </div>
       </div>
 
+      {/* Tabs */}
+      <div style={{ display: "flex", gap: 4, marginBottom: 18, borderBottom: "1px solid var(--border)" }}>
+        <button
+          type="button"
+          onClick={() => setTab("sabloni")}
+          data-testid="tab-sabloni"
+          style={{
+            padding: "10px 16px",
+            background: "transparent",
+            border: "none",
+            borderBottom: tab === "sabloni" ? "2px solid #0f172a" : "2px solid transparent",
+            color: tab === "sabloni" ? "#0f172a" : "var(--text-tertiary)",
+            fontWeight: tab === "sabloni" ? 700 : 500,
+            fontSize: 13.5,
+            cursor: "pointer",
+            display: "flex",
+            alignItems: "center",
+            gap: 6,
+          }}
+        >
+          <FileText size={16} /> Šabloni
+        </button>
+        <button
+          type="button"
+          onClick={() => setTab("istorija")}
+          data-testid="tab-istorija"
+          style={{
+            padding: "10px 16px",
+            background: "transparent",
+            border: "none",
+            borderBottom: tab === "istorija" ? "2px solid #0f172a" : "2px solid transparent",
+            color: tab === "istorija" ? "#0f172a" : "var(--text-tertiary)",
+            fontWeight: tab === "istorija" ? 700 : 500,
+            fontSize: 13.5,
+            cursor: "pointer",
+            display: "flex",
+            alignItems: "center",
+            gap: 6,
+          }}
+        >
+          <ClockCounterClockwise size={16} /> Istorija prijava
+          {history.length > 0 && (
+            <span style={{ background: "#0f172a", color: "white", borderRadius: 10, padding: "1px 8px", fontSize: 11, fontWeight: 600 }}>
+              {history.length}
+            </span>
+          )}
+        </button>
+      </div>
+
+      {tab === "istorija" ? (
+        <DocumentsHistory
+          history={history}
+          loading={historyLoading}
+          companies={companies}
+          filter={historyCompanyFilter}
+          setFilter={setHistoryCompanyFilter}
+          onOpen={openFromHistory}
+          onDelete={deleteHistoryItem}
+        />
+      ) : (
+        <>
       <div style={{ display: "flex", gap: 12, marginBottom: 20, flexWrap: "wrap", alignItems: "center" }}>
         <div className="topbar-search" style={{ maxWidth: 400, flex: 1, minWidth: 240 }}>
           <MagnifyingGlass size={15} color="var(--text-tertiary)" />
@@ -225,6 +339,8 @@ export default function Documents() {
           })}
         </div>
       )}
+        </>
+      )}
 
       {selectedTemplate && (
         <div className="modal-backdrop" onClick={() => setSelectedTemplate(null)}>
@@ -264,24 +380,44 @@ export default function Documents() {
                         Nema rezultata za "{companySearch}"
                       </div>
                     ) : (
-                      <select
-                        className="select"
-                        value={companyId}
-                        onChange={(e) => setCompanyId(e.target.value)}
-                        data-testid="gen-company-select"
-                        size={Math.min(8, Math.max(3, filteredCompanies.length))}
-                        style={{ height: "auto", paddingTop: 4, paddingBottom: 4 }}
-                      >
-                        {filteredCompanies.map((c) => (
-                          <option key={c.id} value={c.id}>
-                            {c.naziv} {c.pib ? `· PIB ${c.pib}` : ""}
-                          </option>
-                        ))}
-                      </select>
+                      <div style={{ display: "flex", flexDirection: "column", gap: 6, maxHeight: 240, overflowY: "auto", border: "1px solid var(--border)", borderRadius: 8, padding: 6 }}>
+                        {filteredCompanies.map((c) => {
+                          const selected = companyId === c.id;
+                          return (
+                            <button
+                              key={c.id}
+                              type="button"
+                              onClick={() => setCompanyId(c.id)}
+                              data-testid={`company-option-${c.id}`}
+                              style={{
+                                textAlign: "left",
+                                padding: "10px 12px",
+                                borderRadius: 6,
+                                border: selected ? "2px solid #0f172a" : "1px solid transparent",
+                                background: selected ? "#0f172a" : "white",
+                                color: selected ? "white" : "var(--text-primary)",
+                                cursor: "pointer",
+                                fontSize: 13,
+                                fontWeight: selected ? 600 : 500,
+                                transition: "all 120ms",
+                              }}
+                              onMouseEnter={(e) => !selected && (e.currentTarget.style.background = "#f1f5f9")}
+                              onMouseLeave={(e) => !selected && (e.currentTarget.style.background = "white")}
+                            >
+                              <div>{c.naziv_skraceni || c.naziv}</div>
+                              {c.pib && (
+                                <div style={{ fontSize: 11, opacity: 0.7, marginTop: 2 }}>
+                                  PIB {c.pib} {c.direktor_ime ? `· ${c.direktor_ime}` : ""}
+                                </div>
+                              )}
+                            </button>
+                          );
+                        })}
+                      </div>
                     )}
                     {companySearch.trim() && filteredCompanies.length > 0 && (
                       <div style={{ fontSize: 11.5, color: "var(--text-tertiary)", marginTop: 4 }}>
-                        {filteredCompanies.length} {filteredCompanies.length === 1 ? "rezultat" : "rezultata"} pronađen{filteredCompanies.length === 1 ? "" : "o"}
+                        {filteredCompanies.length} {filteredCompanies.length === 1 ? "rezultat" : "rezultata"} {filteredCompanies.length === 1 ? "pronađen" : "pronađeno"} · klikni da izabereš
                       </div>
                     )}
                   </div>
@@ -727,6 +863,132 @@ function ExtrasPrijava({ template, values, onChange }) {
             </div>
           </div>
         </>
+      )}
+    </div>
+  );
+}
+
+function DocumentsHistory({ history, loading, companies, filter, setFilter, onOpen, onDelete }) {
+  const fmtDate = (iso) => {
+    if (!iso) return "—";
+    try {
+      const d = new Date(iso);
+      return d.toLocaleString("sr-Latn", { day: "2-digit", month: "2-digit", year: "numeric", hour: "2-digit", minute: "2-digit" });
+    } catch { return iso.slice(0, 16).replace("T", " "); }
+  };
+  
+  const tplLabel = (fn) => {
+    if (!fn) return "?";
+    return fn.replace(/\.(docx|pdf)$/i, "").replace(/_/g, " ");
+  };
+
+  if (loading) {
+    return <div className="empty"><Spinner size={28} className="spin" /></div>;
+  }
+
+  return (
+    <div data-testid="documents-history">
+      <div style={{ display: "flex", gap: 12, marginBottom: 16, flexWrap: "wrap", alignItems: "center" }}>
+        <select
+          className="select"
+          value={filter}
+          onChange={(e) => setFilter(e.target.value)}
+          style={{ minWidth: 260 }}
+          data-testid="history-company-filter"
+        >
+          <option value="">Sve firme ({history.length} ukupno)</option>
+          {companies.map((c) => (
+            <option key={c.id} value={c.id}>{c.naziv_skraceni || c.naziv}</option>
+          ))}
+        </select>
+        <div style={{ fontSize: 12.5, color: "var(--text-tertiary)" }}>
+          Klikni na zapis da ga otvoriš i napraviš "Promjenu podataka"
+        </div>
+      </div>
+
+      {history.length === 0 ? (
+        <div style={{ padding: "40px 20px", textAlign: "center", color: "var(--text-tertiary)", fontSize: 13, border: "1px dashed var(--border)", borderRadius: 8 }}>
+          Još nije generisana nijedna prijava. Generiši prvi dokument iz tab-a "Šabloni".
+        </div>
+      ) : (
+        <div className="card" style={{ padding: 0, overflow: "hidden" }}>
+          <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}>
+            <thead>
+              <tr style={{ background: "#f8fafc", borderBottom: "1px solid var(--border)" }}>
+                <th style={{ padding: "10px 12px", textAlign: "left", fontWeight: 600, color: "var(--text-tertiary)", fontSize: 11, textTransform: "uppercase", letterSpacing: "0.04em" }}>Datum</th>
+                <th style={{ padding: "10px 12px", textAlign: "left", fontWeight: 600, color: "var(--text-tertiary)", fontSize: 11, textTransform: "uppercase", letterSpacing: "0.04em" }}>Firma</th>
+                <th style={{ padding: "10px 12px", textAlign: "left", fontWeight: 600, color: "var(--text-tertiary)", fontSize: 11, textTransform: "uppercase", letterSpacing: "0.04em" }}>Prijava / Dokument</th>
+                <th style={{ padding: "10px 12px", textAlign: "left", fontWeight: 600, color: "var(--text-tertiary)", fontSize: 11, textTransform: "uppercase", letterSpacing: "0.04em" }}>Tip</th>
+                <th style={{ padding: "10px 12px", textAlign: "right", fontWeight: 600, color: "var(--text-tertiary)", fontSize: 11, textTransform: "uppercase", letterSpacing: "0.04em" }}>Akcije</th>
+              </tr>
+            </thead>
+            <tbody>
+              {history.map((rec) => {
+                const tip = (rec.custom_fields?.tip_prijave || "").toLowerCase();
+                const tipLabel = tip === "promjena" ? "Promjena" : (tip === "pocetak" ? "Početak" : "—");
+                const fname = rec.template_filename || rec.template || "";
+                const isForm = fname.toLowerCase().includes("prijava");
+                return (
+                  <tr key={rec.id} style={{ borderBottom: "1px solid var(--border)" }}>
+                    <td style={{ padding: "10px 12px", color: "var(--text-secondary)", whiteSpace: "nowrap" }}>{fmtDate(rec.created_at)}</td>
+                    <td style={{ padding: "10px 12px", fontWeight: 600, color: "var(--text-primary)" }}>{rec.company_naziv || "—"}</td>
+                    <td style={{ padding: "10px 12px", color: "var(--text-secondary)" }}>{tplLabel(fname)}</td>
+                    <td style={{ padding: "10px 12px" }}>
+                      {tip && (
+                        <span className={`badge ${tip === "promjena" ? "badge-warning" : "badge-success"}`} style={{ fontSize: 11 }}>
+                          {tipLabel}
+                        </span>
+                      )}
+                    </td>
+                    <td style={{ padding: "10px 12px", textAlign: "right", whiteSpace: "nowrap" }}>
+                      <div style={{ display: "inline-flex", gap: 4 }}>
+                        <a
+                          href={`${API}/documents/preview/${rec.pdf_filename || rec.filename}?token=${getToken()}`}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="btn btn-secondary btn-sm"
+                          title="Otvori PDF za štampu"
+                          data-testid={`history-print-${rec.id}`}
+                        >
+                          <Printer size={13} />
+                        </a>
+                        <a
+                          href={`${API}/documents/download/${rec.filename || rec.pdf_filename}?token=${getToken()}`}
+                          className="btn btn-secondary btn-sm"
+                          title="Preuzmi"
+                          data-testid={`history-download-${rec.id}`}
+                        >
+                          <DownloadSimple size={13} />
+                        </a>
+                        {isForm && (
+                          <button
+                            type="button"
+                            onClick={() => onOpen(rec)}
+                            className="btn btn-primary btn-sm"
+                            title="Otvori i napravi promjenu podataka"
+                            data-testid={`history-edit-${rec.id}`}
+                          >
+                            <PencilSimple size={13} /> Promjena
+                          </button>
+                        )}
+                        <button
+                          type="button"
+                          onClick={() => onDelete(rec.id)}
+                          className="btn btn-secondary btn-sm"
+                          style={{ color: "#dc2626" }}
+                          title="Obriši zapis"
+                          data-testid={`history-delete-${rec.id}`}
+                        >
+                          <Trash size={13} />
+                        </button>
+                      </div>
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
       )}
     </div>
   );
