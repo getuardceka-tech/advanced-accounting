@@ -135,22 +135,24 @@ export default function Documents() {
       ) : (
         <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(280px, 1fr))", gap: 12 }}>
           {filtered.map((t) => {
+            const canGenerate = t.supports_generation;
             const isDocx = t.extension === ".docx";
+            const isPdfForm = t.is_pdf_form;
             return (
               <div
                 key={t.filename}
                 className="card"
                 style={{
                   padding: 16,
-                  cursor: isDocx ? "pointer" : "default",
-                  opacity: isDocx ? 1 : 0.7,
+                  cursor: canGenerate ? "pointer" : "default",
+                  opacity: canGenerate || t.extension === ".pdf" ? 1 : 0.7,
                   transition: "all 150ms",
                   display: "flex",
                   flexDirection: "column",
                   gap: 10,
                 }}
-                onClick={() => isDocx && openGenerate(t)}
-                onMouseEnter={(e) => isDocx && (e.currentTarget.style.borderColor = "#0f172a")}
+                onClick={() => canGenerate && openGenerate(t)}
+                onMouseEnter={(e) => canGenerate && (e.currentTarget.style.borderColor = "#0f172a")}
                 onMouseLeave={(e) => (e.currentTarget.style.borderColor = "var(--border)")}
                 data-testid={`template-${t.filename}`}
               >
@@ -158,8 +160,8 @@ export default function Documents() {
                   <div
                     style={{
                       width: 36, height: 36, borderRadius: 8,
-                      background: isDocx ? "#eff6ff" : "#fef2f2",
-                      color: isDocx ? "#1d4ed8" : "#e11d48",
+                      background: isDocx ? "#eff6ff" : (isPdfForm ? "#ecfdf5" : "#fef2f2"),
+                      color: isDocx ? "#1d4ed8" : (isPdfForm ? "#047857" : "#e11d48"),
                       display: "flex", alignItems: "center", justifyContent: "center",
                     }}
                   >
@@ -172,14 +174,17 @@ export default function Documents() {
                     {t.name}
                   </div>
                   <div style={{ fontSize: 11.5, color: "var(--text-tertiary)" }}>
-                    {isDocx ? "Auto-popunjavanje dostupno" : (t.extension === ".pdf" ? "PDF za štampu (originalni obrazac)" : t.extension.toUpperCase().replace(".", "") + " — samo preuzimanje")}
+                    {canGenerate
+                      ? (isPdfForm ? "PDF obrazac · auto-popunjavanje (overlay)" : "Auto-popunjavanje dostupno")
+                      : (t.extension === ".pdf" ? "PDF za štampu (originalni obrazac)" : t.extension.toUpperCase().replace(".", "") + " — samo preuzimanje")}
                   </div>
                 </div>
-                {isDocx ? (
+                {canGenerate ? (
                   <button
                     className="btn btn-secondary btn-sm"
                     style={{ marginTop: "auto" }}
                     onClick={(e) => { e.stopPropagation(); openGenerate(t); }}
+                    data-testid={`generate-btn-${t.filename}`}
                   >
                     <Sparkle size={13} /> Generiši
                   </button>
@@ -223,13 +228,13 @@ export default function Documents() {
 
       {selectedTemplate && (
         <div className="modal-backdrop" onClick={() => setSelectedTemplate(null)}>
-          <div className="modal animate-slide-up" onClick={(e) => e.stopPropagation()} style={{ maxWidth: 600 }}>
+          <div className="modal animate-slide-up" onClick={(e) => e.stopPropagation()} style={{ maxWidth: selectedTemplate.is_pdf_form ? 760 : 600 }}>
             <div className="modal-header">
               <div>
-                <div className="modal-title">{selectedTemplate.name}</div>
+                <div className="modal-title">{selectedTemplate.is_pdf_form ? `Nova ${selectedTemplate.name.toLowerCase()}` : selectedTemplate.name}</div>
                 <div style={{ fontSize: 12, color: "var(--text-tertiary)", marginTop: 2 }}>{selectedTemplate.category}</div>
               </div>
-              <button onClick={() => setSelectedTemplate(null)} style={{ border: "none", background: "transparent", padding: 6 }}>
+              <button onClick={() => setSelectedTemplate(null)} style={{ border: "none", background: "transparent", padding: 6 }} data-testid="close-modal-btn">
                 <X size={18} />
               </button>
             </div>
@@ -237,11 +242,13 @@ export default function Documents() {
               {!genResult ? (
                 <>
                   <div className="field-group" style={{ marginBottom: 14 }}>
-                    <label className="field-label">Firma * (pretraži po nazivu, PIB-u, direktoru)</label>
+                    <label className="field-label">
+                      {selectedTemplate.is_pdf_form ? "Auto-popunjavanje iz klijenta" : "Firma *"} (pretraga po nazivu, PIB-u, direktoru)
+                    </label>
                     <input
                       type="text"
                       className="input"
-                      placeholder="Npr. hotel, marini, 03801969..."
+                      placeholder="Pretraga po nazivu ili PIB-u..."
                       value={companySearch}
                       onChange={(e) => setCompanySearch(e.target.value)}
                       data-testid="gen-company-search"
@@ -269,7 +276,7 @@ export default function Documents() {
                     </div>
                   </div>
 
-                  {employees.length > 0 && (
+                  {employees.length > 0 && !selectedTemplate.is_pdf_form && (
                     <div className="field-group" style={{ marginBottom: 14 }}>
                       <label className="field-label">Zaposleni (opciono)</label>
                       <select
@@ -293,9 +300,7 @@ export default function Documents() {
                     (selectedTemplate.filename.toLowerCase().includes("prijava zanatstva") ||
                      selectedTemplate.filename.toLowerCase().includes("prijava_zanatstva") ||
                      selectedTemplate.filename.toLowerCase().includes("prijava trgovine") ||
-                     selectedTemplate.filename.toLowerCase().includes("prijava_trgovine") ||
-                     selectedTemplate.filename.toLowerCase().includes("prijava trgovinu") ||
-                     selectedTemplate.filename.toLowerCase().includes("prijava trgovin")) && (
+                     selectedTemplate.filename.toLowerCase().includes("prijava_trgovine")) && (
                       <ExtrasPrijava
                         template={selectedTemplate}
                         values={customFields}
@@ -304,12 +309,14 @@ export default function Documents() {
                     )
                   )}
 
-                  <div style={{ padding: 12, background: "#f8fafc", borderRadius: 8, fontSize: 12.5, color: "var(--text-secondary)" }}>
-                    <div style={{ fontWeight: 500, marginBottom: 6 }}>ℹ️ Šta će biti automatski popunjeno:</div>
-                    Podaci firme (naziv, PIB, adresa, direktor), podaci agencije, današnji datum.
-                    {employeeId && " Podaci zaposlenog."}
-                    {" "}Sve preostalo iz šablona ostaje kao u originalu — možete urediti u Word-u nakon preuzimanja.
-                  </div>
+                  {!selectedTemplate.is_pdf_form && (
+                    <div style={{ padding: 12, background: "#f8fafc", borderRadius: 8, fontSize: 12.5, color: "var(--text-secondary)" }}>
+                      <div style={{ fontWeight: 500, marginBottom: 6 }}>ℹ️ Šta će biti automatski popunjeno:</div>
+                      Podaci firme (naziv, PIB, adresa, direktor), podaci agencije, današnji datum.
+                      {employeeId && " Podaci zaposlenog."}
+                      {" "}Sve preostalo iz šablona ostaje kao u originalu — možete urediti u Word-u nakon preuzimanja.
+                    </div>
+                  )}
 
                   {genError && (
                     <div style={{ marginTop: 12, padding: "10px 12px", background: "var(--danger-bg)", color: "var(--danger-text)", borderRadius: 6, fontSize: 13 }} data-testid="gen-error">
@@ -338,14 +345,26 @@ export default function Documents() {
                     >
                       <Printer size={16} /> Otvori PDF za štampu
                     </a>
-                    <a
-                      href={`${API}/documents/download/${genResult.filename}?token=${getToken()}`}
-                      className="btn btn-secondary btn-lg"
-                      download
-                      data-testid="download-generated-btn"
-                    >
-                      <DownloadSimple size={16} /> Word (.docx)
-                    </a>
+                    {!selectedTemplate.is_pdf_form && genResult.filename && genResult.filename.endsWith('.docx') && (
+                      <a
+                        href={`${API}/documents/download/${genResult.filename}?token=${getToken()}`}
+                        className="btn btn-secondary btn-lg"
+                        download
+                        data-testid="download-generated-btn"
+                      >
+                        <DownloadSimple size={16} /> Word (.docx)
+                      </a>
+                    )}
+                    {selectedTemplate.is_pdf_form && (
+                      <a
+                        href={`${API}/documents/download/${genResult.pdf_filename}?token=${getToken()}`}
+                        className="btn btn-secondary btn-lg"
+                        download
+                        data-testid="download-generated-btn"
+                      >
+                        <DownloadSimple size={16} /> Preuzmi PDF
+                      </a>
+                    )}
                   </div>
                   <div style={{ marginTop: 14, fontSize: 11.5, color: "var(--text-tertiary)" }}>
                     PDF se otvara u novom tabu — pritisnite Ctrl+P za štampu.
@@ -355,10 +374,10 @@ export default function Documents() {
             </div>
             {!genResult && (
               <div className="modal-footer">
-                <button className="btn btn-secondary" onClick={() => setSelectedTemplate(null)}>Odustani</button>
+                <button className="btn btn-secondary" onClick={() => setSelectedTemplate(null)} data-testid="cancel-generate-btn">Odustani</button>
                 <button className="btn btn-primary" onClick={generate} disabled={generating || !companyId} data-testid="generate-btn">
                   {generating ? <Spinner size={14} className="spin" /> : <Sparkle size={14} />}
-                  Generiši dokument
+                  {selectedTemplate.is_pdf_form ? "Kreiraj prijavu" : "Generiši dokument"}
                 </button>
               </div>
             )}
@@ -373,47 +392,151 @@ export default function Documents() {
 function ExtrasPrijava({ template, values, onChange }) {
   const isZanatstvo = template.filename.toLowerCase().includes("zanatstv");
   const isTrgovina = template.filename.toLowerCase().includes("trgovin");
-  const today = new Date().toISOString().slice(0, 10);
+  const subject = isZanatstvo ? "zanatstva" : "trgovine";
+  const subjectSubject = isZanatstvo ? "zanatliji" : "trgovini";
+  const subjectActor = isZanatstvo ? "zanatlije" : "trgovca";
   
   const u = (k, v) => onChange({ ...values, [k]: v });
-  
   const tip = values.tip_prijave || "pocetak";
   
+  // Datum split (DD/MM/YYYY) — controlled trough three sub-fields
+  const dPocetkaParts = (values.datum_pocetka_rada || "").split(".");
+  const dPocetkaDay = values.datum_pocetka_day || dPocetkaParts[0] || "";
+  const dPocetkaMonth = values.datum_pocetka_month || dPocetkaParts[1] || "";
+  const dPocetkaYear = values.datum_pocetka_year || dPocetkaParts[2] || "";
+  
+  const setDatumPocetka = (day, mo, yr) => {
+    const pad = (s, n) => s ? s.toString().padStart(n, "0") : "";
+    const combined = (day && mo && yr) ? `${pad(day,2)}.${pad(mo,2)}.${pad(yr,4)}` : "";
+    onChange({
+      ...values,
+      datum_pocetka_day: day,
+      datum_pocetka_month: mo,
+      datum_pocetka_year: yr,
+      datum_pocetka_rada: combined,
+    });
+  };
+  
+  // Datum promjene
+  const dPromjeneParts = (values.datum_promjene || "").split(".");
+  const dPromjeneDay = values.datum_promjene_day || dPromjeneParts[0] || "";
+  const dPromjeneMonth = values.datum_promjene_month || dPromjeneParts[1] || "";
+  const dPromjeneYear = values.datum_promjene_year || dPromjeneParts[2] || "";
+  
+  const setDatumPromjene = (day, mo, yr) => {
+    const pad = (s, n) => s ? s.toString().padStart(n, "0") : "";
+    const combined = (day && mo && yr) ? `${pad(day,2)}.${pad(mo,2)}.${pad(yr,4)}` : "";
+    onChange({
+      ...values,
+      datum_promjene_day: day,
+      datum_promjene_month: mo,
+      datum_promjene_year: yr,
+      datum_promjene: combined,
+    });
+  };
+  
+  const today = new Date();
+  const todayStr = `${String(today.getDate()).padStart(2,"0")}.${String(today.getMonth()+1).padStart(2,"0")}.${today.getFullYear()}`;
+  
+  const sectionTitle = (n, txt) => (
+    <div style={{ display: "flex", alignItems: "center", gap: 8, margin: "20px 0 10px 0", paddingBottom: 6, borderBottom: "1px solid var(--border)" }}>
+      <div style={{ width: 22, height: 22, borderRadius: 6, background: "#0f172a", color: "white", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 12, fontWeight: 700 }}>{n}</div>
+      <div style={{ fontSize: 13.5, fontWeight: 700, color: "var(--text-primary)", textTransform: "uppercase", letterSpacing: "0.04em" }}>{txt}</div>
+    </div>
+  );
+  
+  const dateInputStyle = { width: 60, textAlign: "center", padding: "8px 6px" };
+  
   return (
-    <div style={{ borderTop: "1px solid var(--border)", paddingTop: 14, marginTop: 14, marginBottom: 14 }}>
-      <div style={{ fontSize: 11.5, fontWeight: 600, color: "var(--text-tertiary)", letterSpacing: "0.08em", textTransform: "uppercase", marginBottom: 10 }}>
-        Dodatni podaci za prijavu {isZanatstvo ? "zanatstva" : "trgovine"}
+    <div style={{ marginTop: 8 }}>
+      
+      {/* === PREDMET PRIJAVE === */}
+      <div className="field-group" style={{ marginBottom: 6 }}>
+        <label className="field-label" style={{ textTransform: "uppercase", letterSpacing: "0.05em", fontSize: 11, fontWeight: 700, color: "var(--text-tertiary)" }}>Predmet prijave</label>
+      </div>
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginBottom: 14 }}>
+        <button
+          type="button"
+          onClick={() => u("tip_prijave", "pocetak")}
+          data-testid="tip-pocetak"
+          style={{
+            padding: "14px 12px", borderRadius: 10, cursor: "pointer", fontWeight: 600, fontSize: 13.5,
+            border: tip === "pocetak" ? "2px solid #16a34a" : "1px solid var(--border)",
+            background: tip === "pocetak" ? "#16a34a" : "white",
+            color: tip === "pocetak" ? "white" : "var(--text-primary)",
+            transition: "all 150ms",
+          }}
+        >
+          <div style={{ fontSize: 11, opacity: 0.85, marginBottom: 2 }}>1)</div>
+          Početak obavljanja
+        </button>
+        <button
+          type="button"
+          onClick={() => u("tip_prijave", "promjena")}
+          data-testid="tip-promjena"
+          style={{
+            padding: "14px 12px", borderRadius: 10, cursor: "pointer", fontWeight: 600, fontSize: 13.5,
+            border: tip === "promjena" ? "2px solid #ca8a04" : "1px solid var(--border)",
+            background: tip === "promjena" ? "#eab308" : "white",
+            color: tip === "promjena" ? "white" : "var(--text-primary)",
+            transition: "all 150ms",
+          }}
+        >
+          <div style={{ fontSize: 11, opacity: 0.85, marginBottom: 2 }}>2)</div>
+          Promjena podataka
+        </button>
       </div>
       
-      {/* Tip prijave: početak / promjena */}
-      <div className="field-group" style={{ marginBottom: 12 }}>
-        <label className="field-label">Tip prijave</label>
-        <div style={{ display: "flex", gap: 16 }}>
-          <label style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 13, cursor: "pointer" }}>
-            <input
-              type="radio"
-              name="tip_prijave"
-              checked={tip === "pocetak"}
-              onChange={() => u("tip_prijave", "pocetak")}
-              data-testid="tip-pocetak"
-            />
-            Početak rada
-          </label>
-          <label style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 13, cursor: "pointer" }}>
-            <input
-              type="radio"
-              name="tip_prijave"
-              checked={tip === "promjena"}
-              onChange={() => u("tip_prijave", "promjena")}
-              data-testid="tip-promjena"
-            />
-            Promjena podataka
-          </label>
+      {/* === SECTION 1 — Podaci o (trgovcu / zanatliji) === */}
+      {sectionTitle("1", `Podaci o ${subjectActor}`)}
+      <div style={{ padding: 10, background: "#f8fafc", borderRadius: 8, fontSize: 12, color: "var(--text-secondary)", marginBottom: 10 }}>
+        <strong>Auto-popunjavanje iz klijenta</strong> — naziv/ime, sjedište, broj rješenja, šifra djelatnosti, ovlašćeno lice + JMBG, žiro račun, PIB, telefon. Možete dopuniti niže ako fali.
+      </div>
+      
+      {/* === SECTION 2 — Podaci o (trgovini / zanatstvu) === */}
+      {sectionTitle("2", `Podaci o ${subject}`)}
+      
+      {isTrgovina && (
+        <div className="field-group" style={{ marginBottom: 12 }}>
+          <label className="field-label">Vrsta trgovine</label>
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
+            {[
+              { v: "malo", l: "Trgovina na malo" },
+              { v: "veliko", l: "Trgovina na veliko" },
+              { v: "distanciona", l: "Distanciona" },
+              { v: "usluge", l: "Trgovinske usluge" },
+            ].map(opt => (
+              <label key={opt.v} style={{ display: "flex", alignItems: "center", gap: 8, padding: "10px 12px", borderRadius: 8, border: values.vrsta_trgovine === opt.v ? "2px solid #0f172a" : "1px solid var(--border)", cursor: "pointer", background: values.vrsta_trgovine === opt.v ? "#f1f5f9" : "white", fontSize: 13 }}>
+                <input
+                  type="radio"
+                  name="vrsta_trgovine"
+                  value={opt.v}
+                  checked={values.vrsta_trgovine === opt.v}
+                  onChange={(e) => u("vrsta_trgovine", e.target.value)}
+                  data-testid={`vrsta-trgovine-${opt.v}`}
+                />
+                {opt.l}
+              </label>
+            ))}
+          </div>
         </div>
+      )}
+      
+      <div className="field-group" style={{ marginBottom: 12 }}>
+        <label className="field-label">{isZanatstvo ? "Vrsta zanata / aktiviteti" : "Vrsta robe / trgovinske usluge *"}</label>
+        <input
+          className="input"
+          placeholder={isZanatstvo ? "Npr. Frizerski salon, Servis, Krojač..." : "Npr. mješovita roba, tekstil, obuća..."}
+          value={values[isZanatstvo ? "vrsta_zanata" : "vrsta_robe"] || ""}
+          onChange={(e) => u(isZanatstvo ? "vrsta_zanata" : "vrsta_robe", e.target.value)}
+          data-testid="vrsta-robe-input"
+        />
       </div>
       
-      {/* Sjedište + Adresa objekta */}
-      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginBottom: 12 }}>
+      {/* === SECTION 3 — Podaci o poslovnoj prostoriji === */}
+      {sectionTitle("3", "Podaci o posl. prostoriji")}
+      
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginBottom: 10 }}>
         <div className="field-group">
           <label className="field-label">Sjedište (grad)</label>
           <input
@@ -421,46 +544,117 @@ function ExtrasPrijava({ template, values, onChange }) {
             placeholder="Ulcinj"
             value={values[isZanatstvo ? "sjediste_zanatstva" : "sjediste_objekta"] || ""}
             onChange={(e) => u(isZanatstvo ? "sjediste_zanatstva" : "sjediste_objekta", e.target.value)}
+            data-testid="sjediste-objekta"
           />
         </div>
         <div className="field-group">
-          <label className="field-label">Adresa objekta</label>
+          <label className="field-label">Adresa prostorije</label>
           <input
             className="input"
             placeholder="Ulica i broj"
             value={values[isZanatstvo ? "adresa_zanatstva" : "adresa_objekta"] || ""}
             onChange={(e) => u(isZanatstvo ? "adresa_zanatstva" : "adresa_objekta", e.target.value)}
+            data-testid="adresa-objekta"
           />
         </div>
       </div>
       
-      {/* Vrsta djelatnosti / zanata */}
-      <div className="field-group" style={{ marginBottom: 12 }}>
-        <label className="field-label">{isZanatstvo ? "Vrsta zanata" : "Vrsta djelatnosti"}</label>
-        <input
-          className="input"
-          placeholder={isZanatstvo ? "Npr. Frizerski salon, Servis, Krojač..." : "Npr. Prodavnica prehrambene robe"}
-          value={values[isZanatstvo ? "vrsta_zanata" : "vrsta_djelatnosti"] || ""}
-          onChange={(e) => u(isZanatstvo ? "vrsta_zanata" : "vrsta_djelatnosti", e.target.value)}
-        />
-      </div>
-      
-      {/* Površina m² */}
-      <div style={{ display: "grid", gridTemplateColumns: isZanatstvo ? "1fr 1fr" : "1fr", gap: 10, marginBottom: 12 }}>
-        <div className="field-group">
-          <label className="field-label">{isZanatstvo ? "Poslovni prostor (m²)" : "Površina prodavnice (m²)"}</label>
+      {isTrgovina && (
+        <div className="field-group" style={{ marginBottom: 10 }}>
+          <label className="field-label">Naziv objekta (opciono)</label>
           <input
             className="input"
-            type="number"
-            min="1"
-            placeholder="Npr. 35"
-            value={values.m2_poslovni || values.m2 || ""}
-            onChange={(e) => u("m2_poslovni", e.target.value)}
+            placeholder="Npr. Mini Market BLOK"
+            value={values.naziv_objekta || ""}
+            onChange={(e) => u("naziv_objekta", e.target.value)}
+            data-testid="naziv-objekta"
           />
         </div>
-        {isZanatstvo && (
+      )}
+      
+      {/* Vrsta prostorije + m² grid (samo trgovina) */}
+      {isTrgovina && (
+        <>
+          <div className="field-group" style={{ marginBottom: 6 }}>
+            <label className="field-label">Vrsta prostorije i površina (m²)</label>
+          </div>
+          <div style={{ display: "grid", gap: 6, marginBottom: 12 }}>
+            {[
+              { k: "m2_prodavnica", l: "Prodavnica" },
+              { k: "m2_skladiste", l: "Skladište" },
+              { k: "m2_stovariste", l: "Stovarište" },
+              { k: "m2_drugo", l: "Drugo prodajno mjesto" },
+              { k: "m2_usluge_prostor", l: "Prostorija za trgovinske usluge" },
+              { k: "m2_pijaca", l: "Pijaca i dr. prostori" },
+            ].map(opt => {
+              const checked = !!values[opt.k];
+              return (
+                <div key={opt.k} style={{ display: "grid", gridTemplateColumns: "24px 1fr 100px 30px", gap: 8, alignItems: "center", padding: "6px 10px", borderRadius: 6, background: checked ? "#f1f5f9" : "transparent" }}>
+                  <input
+                    type="checkbox"
+                    checked={checked}
+                    onChange={(e) => u(opt.k, e.target.checked ? (values[opt.k] || "1") : "")}
+                    data-testid={`chk-${opt.k}`}
+                  />
+                  <div style={{ fontSize: 13 }}>{opt.l}</div>
+                  <input
+                    className="input"
+                    type="number"
+                    min="0"
+                    placeholder="m²"
+                    value={values[opt.k] || ""}
+                    onChange={(e) => u(opt.k, e.target.value)}
+                    style={{ padding: "6px 8px" }}
+                    data-testid={`m2-${opt.k}`}
+                  />
+                  <div style={{ fontSize: 12, color: "var(--text-tertiary)" }}>m²</div>
+                </div>
+              );
+            })}
+          </div>
+          
+          <div className="field-group" style={{ marginBottom: 14 }}>
+            <label className="field-label">Lokacija prostorije</label>
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 8 }}>
+              {[
+                { v: "zatvor", l: "U zatvorenom prostoru" },
+                { v: "otvoren", l: "Na otvorenom prostoru" },
+                { v: "pijac", l: "Na pijaci" },
+              ].map(opt => (
+                <label key={opt.v} style={{ display: "flex", alignItems: "center", gap: 6, padding: "10px 12px", borderRadius: 8, border: values.lokacija === opt.v ? "2px solid #0f172a" : "1px solid var(--border)", cursor: "pointer", background: values.lokacija === opt.v ? "#f1f5f9" : "white", fontSize: 12.5 }}>
+                  <input
+                    type="radio"
+                    name="lokacija"
+                    value={opt.v}
+                    checked={values.lokacija === opt.v}
+                    onChange={(e) => u("lokacija", e.target.value)}
+                    data-testid={`lokacija-${opt.v}`}
+                  />
+                  {opt.l}
+                </label>
+              ))}
+            </div>
+          </div>
+        </>
+      )}
+      
+      {/* === ZANATSTVO m² fields === */}
+      {isZanatstvo && (
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginBottom: 12 }}>
           <div className="field-group">
-            <label className="field-label">Stambeni prostor (m²) – opciono</label>
+            <label className="field-label">Poslovni prostor (m²)</label>
+            <input
+              className="input"
+              type="number"
+              min="0"
+              placeholder="Npr. 35"
+              value={values.m2_poslovni || ""}
+              onChange={(e) => u("m2_poslovni", e.target.value)}
+              data-testid="m2-poslovni"
+            />
+          </div>
+          <div className="field-group">
+            <label className="field-label">Stambeni prostor (m²) — opciono</label>
             <input
               className="input"
               type="number"
@@ -468,46 +662,61 @@ function ExtrasPrijava({ template, values, onChange }) {
               placeholder="0"
               value={values.m2_stambeni || ""}
               onChange={(e) => u("m2_stambeni", e.target.value)}
+              data-testid="m2-stambeni"
             />
           </div>
-        )}
-      </div>
-      
-      {/* Datum početka rada */}
-      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
-        <div className="field-group">
-          <label className="field-label">Datum početka rada</label>
-          <input
-            className="input"
-            type="date"
-            value={values.datum_pocetka_rada_iso || ""}
-            onChange={(e) => {
-              const iso = e.target.value;
-              const dt = iso ? iso.split("-").reverse().join(".") : "";
-              onChange({ ...values, datum_pocetka_rada_iso: iso, datum_pocetka_rada: dt });
-            }}
-            data-testid="datum-pocetka-rada"
-          />
         </div>
-        <div className="field-group">
-          <label className="field-label">Datum podnošenja</label>
-          <input className="input" type="date" value={today} disabled readOnly style={{ background: "#f3f4f6" }} />
-          <div style={{ fontSize: 11, color: "var(--text-tertiary)", marginTop: 4 }}>Današnji datum (auto)</div>
+      )}
+      
+      {/* === SECTION 5-8 — DATUMI === */}
+      {sectionTitle("5-8", "Datumi")}
+      
+      <div className="field-group" style={{ marginBottom: 14 }}>
+        <label className="field-label">Datum početka rada</label>
+        <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+          <input className="input" type="number" min="1" max="31" placeholder="DD" value={dPocetkaDay} onChange={(e) => setDatumPocetka(e.target.value, dPocetkaMonth, dPocetkaYear)} style={dateInputStyle} data-testid="dp-day" />
+          <span style={{ color: "var(--text-tertiary)" }}>.</span>
+          <input className="input" type="number" min="1" max="12" placeholder="MM" value={dPocetkaMonth} onChange={(e) => setDatumPocetka(dPocetkaDay, e.target.value, dPocetkaYear)} style={dateInputStyle} data-testid="dp-month" />
+          <span style={{ color: "var(--text-tertiary)" }}>.</span>
+          <input className="input" type="number" min="2020" max="2099" placeholder="YYYY" value={dPocetkaYear} onChange={(e) => setDatumPocetka(dPocetkaDay, dPocetkaMonth, e.target.value)} style={{ ...dateInputStyle, width: 80 }} data-testid="dp-year" />
+          <span style={{ fontSize: 12, color: "var(--text-tertiary)", marginLeft: 8 }}>
+            {values.datum_pocetka_rada ? `→ ${values.datum_pocetka_rada}` : "Format: DD . MM . YYYY"}
+          </span>
         </div>
       </div>
       
-      {/* Vrsta promjene — samo ako je tip = promjena */}
+      <div className="field-group" style={{ marginBottom: 6 }}>
+        <label className="field-label">Datum podnošenja prijave</label>
+        <input className="input" value={todayStr} disabled readOnly style={{ background: "#f3f4f6", maxWidth: 200 }} data-testid="datum-podnosenja" />
+        <div style={{ fontSize: 11, color: "var(--text-tertiary)", marginTop: 4 }}>Današnji datum (automatski)</div>
+      </div>
+      
+      {/* === Vrsta promjene — samo ako je tip = promjena === */}
       {tip === "promjena" && (
-        <div className="field-group" style={{ marginTop: 12 }}>
-          <label className="field-label">Opis promjene</label>
-          <textarea
-            className="input"
-            rows={2}
-            placeholder="Npr. promjena adrese, promjena djelatnosti..."
-            value={values.opis_promjene || ""}
-            onChange={(e) => u("opis_promjene", e.target.value)}
-          />
-        </div>
+        <>
+          <div className="field-group" style={{ marginTop: 14 }}>
+            <label className="field-label">Vrsta i opis promjene</label>
+            <textarea
+              className="input"
+              rows={2}
+              placeholder="Npr. promjena adrese, promjena djelatnosti..."
+              value={values.opis_promjene || ""}
+              onChange={(e) => u("opis_promjene", e.target.value)}
+              data-testid="opis-promjene"
+            />
+          </div>
+          <div className="field-group" style={{ marginTop: 10 }}>
+            <label className="field-label">Datum nastanka promjene</label>
+            <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+              <input className="input" type="number" min="1" max="31" placeholder="DD" value={dPromjeneDay} onChange={(e) => setDatumPromjene(e.target.value, dPromjeneMonth, dPromjeneYear)} style={dateInputStyle} data-testid="dpr-day" />
+              <span style={{ color: "var(--text-tertiary)" }}>.</span>
+              <input className="input" type="number" min="1" max="12" placeholder="MM" value={dPromjeneMonth} onChange={(e) => setDatumPromjene(dPromjeneDay, e.target.value, dPromjeneYear)} style={dateInputStyle} data-testid="dpr-month" />
+              <span style={{ color: "var(--text-tertiary)" }}>.</span>
+              <input className="input" type="number" min="2020" max="2099" placeholder="YYYY" value={dPromjeneYear} onChange={(e) => setDatumPromjene(dPromjeneDay, dPromjeneMonth, e.target.value)} style={{ ...dateInputStyle, width: 80 }} data-testid="dpr-year" />
+              {values.datum_promjene && <span style={{ fontSize: 12, color: "var(--text-tertiary)", marginLeft: 8 }}>→ {values.datum_promjene}</span>}
+            </div>
+          </div>
+        </>
       )}
     </div>
   );

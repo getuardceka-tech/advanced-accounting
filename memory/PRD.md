@@ -102,3 +102,5 @@ Korisnik Getuard Cekoviq iz Ulcinja, Crna Gora, vlasnik računovodstvene agencij
 ## Date Log
 - **21.05.2026**: Faza 1 MVP završena. 24/24 backend testova.
 - **21.05.2026 (iter 2)**: Phase 2 — MSG 292 mapiranja + PDF→DOCX konverzija + A4 formatiranje. 43/43 testova prolaze.
+- **22.05.2026 (iter 3)**: Phase 3a — Native PDF overlay engine (`pdf_form_filler.py`) za Zahtjeve (HRANA/VODA/BAZENI/BRISEVI) + Prijava zanatstva.
+- **22.05.2026 (iter 4)**: **Prijava trgovine PDF-overlay** — registracija u dispatcher, custom modal UI prema mockup-u sa sekcijama 1/2/3/5-8, vrsta trgovine radios, m² grid sa checkbox-ima (prodavnica/skladište/stovarište/drugo/usluge/pijaca), lokacija radio (zatvor/otvoren/pijaca), DD/MM/YYYY 3-field datum, opis+datum promjene conditional, unifikovani dizajn sa Prijava zanatstva. Frontend modal sada otvara i .pdf form templates (ne samo .docx). PDF-only result UI bez Word dugmeta. Backend `is_pdf_form` flag dodat u `/api/templates`. 43/43 testova prolaze.

@@ -694,6 +694,7 @@ async def list_all_persons(
 @api_router.get("/templates")
 async def list_templates(username: str = Depends(get_current_user)):
     """Vraća listu svih .docx, .doc, .pdf šablona u templates folderu."""
+    from pdf_form_filler import is_pdf_form_template
     templates = []
     for f in sorted(TEMPLATES_DIR.iterdir()):
         if f.is_file() and f.suffix.lower() in ['.docx', '.doc', '.pdf', '.rtf']:
@@ -702,12 +703,15 @@ async def list_templates(username: str = Depends(get_current_user)):
             # Capitalize words
             name = ' '.join(w.capitalize() if not w.isupper() else w for w in name.split())
             category = _categorize_template(f.name)
+            ext = f.suffix.lower()
+            supports_gen = ext == '.docx' or (ext == '.pdf' and is_pdf_form_template(f.name))
             templates.append({
                 "filename": f.name,
                 "name": name,
-                "extension": f.suffix.lower(),
+                "extension": ext,
                 "category": category,
-                "supports_generation": f.suffix.lower() == '.docx'
+                "supports_generation": supports_gen,
+                "is_pdf_form": ext == '.pdf' and is_pdf_form_template(f.name),
             })
     return templates
 

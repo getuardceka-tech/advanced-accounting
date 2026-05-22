@@ -246,6 +246,7 @@ def _fill_prijava_trgovine(input_pdf: Path, output_pdf: Path, company: Dict[str,
     direktor = company.get("direktor_ime", "")
     direktor_jmbg = company.get("direktor_jmbg", "")
     maticni = company.get("maticni_broj", "")
+    crps_datum = company.get("crps_datum", "") or company.get("datum_registracije", "")
     
     today = datetime.now(timezone.utc).strftime("%d.%m.%Y")
     
@@ -263,18 +264,21 @@ def _fill_prijava_trgovine(input_pdf: Path, output_pdf: Path, company: Dict[str,
     if lbl:
         _draw_text(page1, naziv, lbl.x1 + 8, lbl.y1 - 1, fontsize=9, max_width=380)
     
-    # 3) 1.2. Sjedište + adresa  
+    # 3) 1.2. Sjedište + adresa  (prva "adresa" je u sekciji 1.2)
     lbl = _find_label(page1, "1.2. Sjedište")
     if lbl:
         _draw_text(page1, grad, lbl.x1 + 8, lbl.y1 - 1, fontsize=9, max_width=140)
-    lbl_adr = _find_label(page1, "adresa")
-    if lbl_adr:
-        _draw_text(page1, adresa, lbl_adr.x1 + 8, lbl_adr.y1 - 1, fontsize=9, max_width=380)
+    adr_rects = page1.search_for("adresa")
+    if adr_rects:
+        a = adr_rects[0]
+        _draw_text(page1, adresa, a.x1 + 8, a.y1 - 1, fontsize=9, max_width=200)
     
     # 4) 1.3. Broj i datum rješenja
     lbl = _find_label(page1, "1.3. Broj i datum rješenja")
-    if lbl and maticni:
-        _draw_text(page1, maticni, lbl.x1 + 8, lbl.y1 + 8, fontsize=9, max_width=300)
+    if lbl:
+        line = f"{maticni}  {crps_datum}".strip() if maticni or crps_datum else ""
+        if line:
+            _draw_text(page1, line, lbl.x0 + 5, lbl.y1 + 14, fontsize=9, max_width=350)
     
     # 5) 1.4. Šifra djelatnosti  
     lbl = _find_label(page1, "1.4. Šifra dijelatnosti")
@@ -297,14 +301,13 @@ def _fill_prijava_trgovine(input_pdf: Path, output_pdf: Path, company: Dict[str,
     if lbl:
         _draw_text(page1, pib, lbl.x1 + 8, lbl.y1 - 1, fontsize=9, max_width=300)
     
-    # 9) 1.6. Telefon, fax, e-mail (sample says 1.6, but it's tel/email row)
-    # Find "Telefon, fax, e-mail" label
-    lbl = _find_label(page1, "Telefon, fax, e-mail")
+    # 9) Telefon, fax, e-mail
+    lbl = _find_label(page1, "1.6. Telefon, fax, e-mail")
     if lbl:
-        line = f"{tel}, {email}".strip(", ")
+        line = ", ".join(x for x in [tel, email] if x)
         _draw_text(page1, line, lbl.x1 + 8, lbl.y1 - 1, fontsize=9, max_width=300)
     
-    # 10) Vrsta trgovine — checkbox
+    # 10) Vrsta trgovine — checkbox (X lijevo od labele)
     vrsta_trg = (extras.get("vrsta_trgovine") or "").lower()
     map_vrsta = {
         "veliko": "trgovina na veliko",
@@ -318,45 +321,47 @@ def _fill_prijava_trgovine(input_pdf: Path, output_pdf: Path, company: Dict[str,
             if lbl:
                 _draw_text(page1, "X", lbl.x0 - 15, lbl.y1 - 2, fontsize=11)
     
-    # 11) Vrsta robe / trgovinske usluge — text
+    # 11) Vrsta robe / trgovinske usluge — text (ispod kolone "Vrsta robe")
     if extras.get("vrsta_robe"):
         lbl = _find_label(page1, "Vrsta robe")
         if lbl:
-            _draw_text(page1, extras["vrsta_robe"], lbl.x0, lbl.y1 + 12, fontsize=9, max_width=420)
+            _draw_text(page1, extras["vrsta_robe"], lbl.x0, lbl.y1 + 18, fontsize=9, max_width=200)
     
-    # 12) 3.1 Sjedište adresa prostorije
+    # 12) 3.1 Sjedište + adresa prostorije
     sjediste_obj = extras.get("sjediste_objekta") or grad
+    naziv_obj = extras.get("naziv_objekta", "")
     adresa_obj = extras.get("adresa_objekta") or adresa
+    if naziv_obj:
+        adresa_obj = f"{naziv_obj} – {adresa_obj}" if adresa_obj else naziv_obj
     lbl = _find_label(page1, "3.1.Sjedište")
     if lbl:
-        _draw_text(page1, sjediste_obj, lbl.x1 + 8, lbl.y1 - 1, fontsize=9, max_width=200)
-    # adresa: drugog reda nakon 3.1
-    lbls_adr = page1.search_for("adresa:")
-    if lbls_adr:
-        a = lbls_adr[-1]  # poslednji "adresa:" je za prostoriju
-        _draw_text(page1, adresa_obj, a.x1 + 8, a.y1 - 1, fontsize=9, max_width=300)
+        _draw_text(page1, sjediste_obj, lbl.x1 + 8, lbl.y1 - 1, fontsize=9, max_width=160)
+    adr_rects = page1.search_for("adresa:")
+    if adr_rects:
+        a = adr_rects[-1]  # poslednji "adresa:" je za 3.1
+        _draw_text(page1, adresa_obj, a.x1 + 8, a.y1 - 1, fontsize=9, max_width=200)
     
     # ============ PAGE 2 ============
     if doc.page_count > 1:
         page2 = doc[1]
         
-        # 3.2 Vrsta prostorije + m² checkbox-ovi
-        # prodavnica, skladište, stovarište, drugo prodajno mesto, prostorija za usluge, pijaca
-        prostor_data = {
-            "prodavnica": (extras.get("m2_prodavnica"), "-prodavnica"),
-            "skladiste": (extras.get("m2_skladiste"), "-skladište"),
-            "stovariste": (extras.get("m2_stovariste"), "-stovarište"),
-            "drugo": (extras.get("m2_drugo"), "-drugo prodajno mesto"),
-            "usluge_prostor": (extras.get("m2_usluge_prostor"), "prostorija za obavljanje trgovinskih usluga"),
-            "pijaca": (extras.get("m2_pijaca"), "pijaca i dr.prostori"),
-        }
-        for key, (m2_val, label_text) in prostor_data.items():
+        # 3.2 Vrsta prostorije + m² checkbox-ovi (X lijevo, m² na desnoj koloni ~x=490)
+        prostor_data = [
+            ("m2_prodavnica", "-prodavnica"),
+            ("m2_skladiste", "-skladište"),
+            ("m2_stovariste", "-stovarište"),
+            ("m2_drugo", "-drugo prodajno mesto"),
+            ("m2_usluge_prostor", "prostorija za obavljanje trgovinskih usluga"),
+            ("m2_pijaca", "pijaca i dr.prostori"),
+        ]
+        for key, label_text in prostor_data:
+            m2_val = extras.get(key)
             if m2_val:
                 lbl = _find_label(page2, label_text)
                 if lbl:
                     _draw_text(page2, "X", lbl.x0 - 15, lbl.y1 - 2, fontsize=11)
-                    # Upiši m² vrijednost desno (gdje stoji m²)
-                    _draw_text(page2, str(m2_val), lbl.x1 + 90, lbl.y1 - 1, fontsize=9, max_width=60)
+                    # Upiši m² vrijednost na desnoj koloni (m² je oko x=524)
+                    _draw_text(page2, str(m2_val), 490, lbl.y1 - 1, fontsize=9, max_width=30)
         
         # Lokacija — u zatvorenom / na otvorenom / na pijaci
         lokacija = (extras.get("lokacija") or "").lower()
@@ -383,19 +388,20 @@ def _fill_prijava_trgovine(input_pdf: Path, output_pdf: Path, company: Dict[str,
             if lbl:
                 _draw_text(page2, extras["opis_promjene"], lbl.x1 + 8, lbl.y1 - 1, fontsize=9, max_width=300)
         
-        # 7. Datum nastanka promjene (iz prijave 2)
+        # 7. Datum nastanka promjene
         if tip == "promjena" and extras.get("datum_promjene"):
             lbl = _find_label(page2, "7.Datum nastanka")
             if lbl:
                 _draw_text(page2, extras["datum_promjene"], lbl.x1 + 8, lbl.y1 - 1, fontsize=9, max_width=200)
         
-        # 8. Datum podnošenja prijave — uvijek današnji
+        # 8. Datum podnošenja prijave — user input ili današnji
+        datum_podnosenja = extras.get("datum_podnosenja") or today
         lbl = _find_label(page2, "8.Datum podnošenja")
         if lbl:
-            _draw_text(page2, today, lbl.x1 + 8, lbl.y1 - 1, fontsize=9, max_width=200)
+            _draw_text(page2, datum_podnosenja, lbl.x1 + 8, lbl.y1 - 1, fontsize=9, max_width=200)
         
         # Potpis: ime i prezime direktora
-        lbl = _find_label(page2, "(ime i prezime i potpis")
+        lbl = _find_label(page2, "ime i prezime i potpis")
         if lbl and direktor:
             _draw_text(page2, direktor, lbl.x0, lbl.y0 - 12, fontsize=9, max_width=200)
     
@@ -419,6 +425,8 @@ def fill_pdf_template(template_filename: str, output_pdf: Path,
         return _fill_zahtjev_uzorkovanje(src, output_pdf, company, agency)
     elif "prijava zanatstva" in tn or "prijava_zanatstva" in tn:
         return _fill_prijava_zanatstva(src, output_pdf, company, agency, extras)
+    elif "prijava trgovine" in tn or "prijava_trgovine" in tn:
+        return _fill_prijava_trgovine(src, output_pdf, company, agency, extras)
     return False
 
 
@@ -429,6 +437,7 @@ PDF_FORM_TEMPLATES = [
     "Zahtjev za uzorkovanje i ispitivanje - VODA ZA PICE.pdf",
     "Zahtjev za uzorkovanje i ispitivanje - BAZENI.pdf",
     "Prijava zanatstva.pdf",
+    "Prijava trgovine.pdf",
 ]
 
 
