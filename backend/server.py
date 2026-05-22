@@ -1595,12 +1595,15 @@ def _build_replacements(company: dict, employee: Optional[dict], agency: dict, c
             repl["Podaci o objektu (navesti tačan naziv i adresu)________________________________________ _____________________________________________________________________________"] = \
                 f"Podaci o objektu: {company_naziv}, {adresa_full}".rstrip(", ")
     
-    # UGOVOR O POZAJMICI — iznos pozajmice + datum sklapanja = datum štampe
+    # UGOVOR O POZAJMICI — iznos pozajmice + datum sklapanja (klijent unosi)
     if "pozajm" in tname_lower:
-        # Datum sklapanja ugovora = današnji datum štampe
-        repl["sklapaju dana 06.02.2026"] = f"sklapaju dana {today_str}"
-        repl["dana 06.02.2026"] = f"dana {today_str}"
-        repl["06.02.2026"] = today_str
+        # Datum sklapanja ugovora — iz custom polja (klijent ručno unosi).
+        # Ako nije unesen, ostavlja crticu da klijent dopiše u Wordu.
+        datum_raw = custom.get("datum_sklapanja") or ""
+        datum_str = _format_date(str(datum_raw)) if datum_raw else "__________"
+        repl["sklapaju dana 06.02.2026"] = f"sklapaju dana {datum_str}"
+        repl["dana 06.02.2026"] = f"dana {datum_str}"
+        repl["06.02.2026"] = datum_str
         
         # Iznos pozajmice iz custom polja zamjenjuje "__________" u Članu 1
         iznos_raw = custom.get("iznos_pozajmice")

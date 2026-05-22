@@ -621,21 +621,35 @@ function ExtrasOdluka({ template, values, onChange, companyId }) {
 
 function PozajmicaInput({ values, u }) {
   return (
-    <div className="field-group" style={{ marginBottom: 12 }}>
-      <label className="field-label">Iznos pozajmice (EUR) <span style={{ color: "var(--accent)" }}>*</span></label>
-      <input
-        className="input"
-        type="number"
-        min="0" step="0.01"
-        placeholder="Npr. 5000"
-        value={values.iznos_pozajmice ?? ""}
-        onChange={(e) => u("iznos_pozajmice", e.target.value)}
-        data-testid="pozajmica-iznos-input"
-        style={{ maxWidth: 220 }}
-        autoFocus
-      />
-      <div style={{ fontSize: 11.5, color: "var(--text-tertiary)", marginTop: 4 }}>
-        Iznos koji zajmodavac daje zajmoprimcu — automatski popunjava crticu u Članu 1.
+    <div style={{ marginBottom: 12, display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
+      <div className="field-group">
+        <label className="field-label">Iznos pozajmice (EUR) <span style={{ color: "var(--accent)" }}>*</span></label>
+        <input
+          className="input"
+          type="number"
+          min="0" step="0.01"
+          placeholder="Npr. 5000"
+          value={values.iznos_pozajmice ?? ""}
+          onChange={(e) => u("iznos_pozajmice", e.target.value)}
+          data-testid="pozajmica-iznos-input"
+          autoFocus
+        />
+        <div style={{ fontSize: 11.5, color: "var(--text-tertiary)", marginTop: 4 }}>
+          Automatski popunjava crticu u Članu 1.
+        </div>
+      </div>
+      <div className="field-group">
+        <label className="field-label">Datum sklapanja ugovora</label>
+        <input
+          className="input"
+          type="date"
+          value={values.datum_sklapanja ?? ""}
+          onChange={(e) => u("datum_sklapanja", e.target.value)}
+          data-testid="pozajmica-datum-input"
+        />
+        <div style={{ fontSize: 11.5, color: "var(--text-tertiary)", marginTop: 4 }}>
+          Ako ostavite prazno — crtica se ostavlja u Wordu da popunite ručno.
+        </div>
       </div>
     </div>
   );
