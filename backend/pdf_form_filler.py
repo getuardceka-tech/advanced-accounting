@@ -95,8 +95,15 @@ def _fill_zahtjev_uzorkovanje(input_pdf: Path, output_pdf: Path, company: Dict[s
     
     if is_voda:
         # VODA layout — 2 kolone (lijevo + desno)
-        # Podnosilac zahtjeva: piše se ISPOD labele "(Naziv firme/fizičko lice):" da puni naziv stane
-        _draw_text(page, naziv, 75, Y(210), fontsize=FONT, max_width=480)                  # Podnosilac zahtjeva — PUNI naziv (na drugom redu, lijevo)
+        # Podnosilac zahtjeva: auto-scale font da puni naziv stane u box (širina ~480px)
+        podnosilac_font = FONT
+        if len(naziv) > 95:
+            podnosilac_font = 8
+        elif len(naziv) > 80:
+            podnosilac_font = 9
+        elif len(naziv) > 65:
+            podnosilac_font = 10
+        _draw_text(page, naziv, 75, Y(210), fontsize=podnosilac_font, max_width=480)        # Podnosilac zahtjeva — PUNI naziv
         _draw_text(page, naziv_objekta, 156, Y(234), fontsize=FONT, max_width=220)         # Naziv objekta — user input
         _draw_text(page, sifra_dj, 470, Y(234), fontsize=FONT, max_width=100)              # Djelatnost
         _draw_text(page, adresa_objekta, 121, Y(258), fontsize=FONT, max_width=240)        # Adresa

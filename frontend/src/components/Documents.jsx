@@ -560,7 +560,7 @@ function ExtrasZahtjev({ template, values, onChange, company }) {
   
   const u = (k, v) => onChange({ ...values, [k]: v });
   
-  const useObject = (obj) => {
+  const applyObject = (obj) => {
     onChange({ ...values, naziv_objekta: obj.naziv_objekta, adresa_objekta: obj.adresa_objekta });
   };
   
@@ -585,7 +585,7 @@ function ExtrasZahtjev({ template, values, onChange, company }) {
               <button
                 key={obj.naziv_objekta}
                 type="button"
-                onClick={() => useObject(obj)}
+                onClick={() => applyObject(obj)}
                 data-testid={`obj-suggestion-${obj.naziv_objekta}`}
                 style={{
                   padding: "5px 10px",
