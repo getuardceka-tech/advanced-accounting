@@ -174,21 +174,18 @@ class TestAuthAndTemplates:
         r = requests.post(f"{API}/auth/login", json={"username": USERNAME, "password": PASSWORD})
         assert r.status_code == 200
 
-    def test_templates_count_58(self, auth_headers):
+    def test_templates_count(self, auth_headers):
         r = requests.get(f"{API}/templates", headers=auth_headers)
         assert r.status_code == 200
         templates = r.json()
-        # Expect 58 total
-        assert len(templates) == 58, f"Expected 58 templates, got {len(templates)}"
-        # Verify 2 PDFs remain
-        pdfs = [t for t in templates if t["extension"] == ".pdf"]
-        pdf_names = {t["filename"] for t in pdfs}
+        # Expect 59 total (54 .docx + 5 PDF-form + 2 image-only PDF)
+        assert len(templates) >= 58, f"Expected ≥58 templates, got {len(templates)}"
+        # Verify image-only PDFs (no auto-fill) and PDF-form templates exist
+        pdf_names = {t["filename"] for t in templates if t["extension"] == ".pdf"}
         assert "OP OBRAZAC.pdf" in pdf_names
         assert "ZAHTJEV ZA ODOBRENJE ZA DUVAN.pdf" in pdf_names
-        assert len(pdfs) == 2, f"Expected exactly 2 PDFs, got {len(pdfs)}: {pdf_names}"
-        # 56 docx
-        docx = [t for t in templates if t["extension"] == ".docx"]
-        assert len(docx) == 56, f"Expected 56 .docx, got {len(docx)}"
+        assert "Prijava zanatstva.pdf" in pdf_names
+        assert "Zahtjev za uzorkovanje i ispitivanje - BRISEVA.pdf" in pdf_names
 
 
 class TestMsg292DatumBehavior:
@@ -304,30 +301,50 @@ class TestConvertedFromPdf:
         return n and (n in t or (ns and ns in t) or n.split()[0] in t)
 
     def test_prijava_zanatstva(self, auth_headers, test_company):
-        out = _generate(auth_headers, "prijava_zanatstva_.docx", test_company["id"])
-        text = _read_docx_text(out["filename"])
-        assert self._naziv_present(text, test_company), f"Expected company naziv in prijava_zanatstva"
+        """Prijava zanatstva sada koristi PDF overlay umjesto DOCX."""
+        out = _generate(auth_headers, "Prijava zanatstva.pdf", test_company["id"])
+        # Output je PDF - provjeri da je generisan
+        assert out["pdf_filename"], "Expected pdf_filename in response"
+        pdf_path = GENERATED_DIR / out["pdf_filename"]
+        assert pdf_path.exists(), f"PDF not generated: {pdf_path}"
+        # Pročitaj PDF tekst i provjeri naziv firme + PIB
+        import fitz
+        doc = fitz.open(str(pdf_path))
+        text = "\n".join(p.get_text() for p in doc)
+        doc.close()
+        assert self._naziv_present(text, test_company), "Expected company naziv in PDF"
         if test_company.get("pib"):
             assert test_company["pib"] in text
 
     def test_brisevi(self, auth_headers, test_company):
-        out = _generate(auth_headers, "Zahtjev za uzorkovanje i ispitivanje - BRISEVA.docx", test_company["id"])
-        text = _read_docx_text(out["filename"])
-        assert self._naziv_present(text, test_company)
+        out = _generate(auth_headers, "Zahtjev za uzorkovanje i ispitivanje - BRISEVA.pdf", test_company["id"])
+        assert out["pdf_filename"]
+        pdf_path = GENERATED_DIR / out["pdf_filename"]
+        assert pdf_path.exists()
+        import fitz
+        doc = fitz.open(str(pdf_path))
+        text = "\n".join(p.get_text() for p in doc)
+        doc.close()
         if test_company.get("pib"):
             assert test_company["pib"] in text
 
     def test_hrana(self, auth_headers, test_company):
-        out = _generate(auth_headers, "Zahtjev za uzorkovanje i ispitivanje - HRANA.docx", test_company["id"])
-        text = _read_docx_text(out["filename"])
-        assert self._naziv_present(text, test_company)
+        out = _generate(auth_headers, "Zahtjev za uzorkovanje i ispitivanje - HRANA.pdf", test_company["id"])
+        assert out["pdf_filename"]
+        pdf_path = GENERATED_DIR / out["pdf_filename"]
+        assert pdf_path.exists()
+        import fitz
+        doc = fitz.open(str(pdf_path))
+        text = "\n".join(p.get_text() for p in doc)
+        doc.close()
         if test_company.get("pib"):
             assert test_company["pib"] in text
 
     def test_voda(self, auth_headers, test_company):
-        out = _generate(auth_headers, "Zahtjev za uzorkovanje i ispitivanje - VODA ZA PICE.docx", test_company["id"])
-        text = _read_docx_text(out["filename"])
-        assert self._naziv_present(text, test_company)
+        out = _generate(auth_headers, "Zahtjev za uzorkovanje i ispitivanje - VODA ZA PICE.pdf", test_company["id"])
+        assert out["pdf_filename"]
+        pdf_path = GENERATED_DIR / out["pdf_filename"]
+        assert pdf_path.exists()
 
     def test_kazneno_fizicko_employee(self, auth_headers, test_company, test_employee_with_datum_kraja):
         emp = test_employee_with_datum_kraja

@@ -1446,9 +1446,50 @@ def _build_replacements(company: dict, employee: Optional[dict], agency: dict, c
         if emp_jmbg:
             repl["3004985220014"] = emp_jmbg
     
-    # "Prijava zanatstva" → label-anchored replacements za polja sa blank-line vrijednostima
-    # (pdf2docx je sačuvao layout ali izbrisao dummy vrijednosti; popunjavamo nakon naziva polja)
-    if "prijava_zanatstva" in tname_lower or "prijava zanatstva" in tname_lower:
+    # "Prijava trgovine" — extras + datum logika
+    if "prijava trgovine" in tname_lower or "prijava_trgovine" in tname_lower:
+        # Tip prijave: pocetak / promjena
+        tip = (custom.get("tip_prijave") or "pocetak").lower()
+        # T0R0C1 sadrži "x" (čekirano "početak"). Ako promjena → ukloni X tu, dodaj kod promjene.
+        # Pristup: zamijenimo postojeću "x" čekircu sa praznim, a u "promjena" liniji upišemo X.
+        if tip == "promjena":
+            # Ukloni X iz T0R0C1 ("-početak obavljanja trgovine 1)" → cell sa "x")
+            # I dodaj X kod promjene; jednostavnije: dodaj '-promjena  podataka iz prijave2)' u replacement zajedno sa X-om
+            # Pošto "x" se javlja i na drugim mjestima (kao 'X' velikim slovom je odvojeno), ovo radi targeted:
+            repl["-početak obavljanja trgovine 1)"] = "-početak obavljanja trgovine 1)"  # ostavi
+            repl["-promjena  podataka iz prijave2)"] = "-promjena  podataka iz prijave2)    X"
+        
+        # Sjedište + adresa objekta (T3R0C1, T3R0C3) — "Ulcinj" → user input, "VLADIMIR BB" → user input
+        if custom.get("sjediste_objekta"):
+            # Ovo je riskantno jer "Ulcinj" je svuda. Targetiramo cijelu ćeliju kombinaciju.
+            pass  # ostavi za sad — Ulcinj se već zamjenjuje na druga mesta
+        if custom.get("adresa_objekta"):
+            repl["VLADIMIR BB"] = custom["adresa_objekta"]
+        
+        # Vrsta djelatnosti / "prodavnica" je već čekirana sa X u T4R0C2/C3 — ne treba mijenjati
+        # Vrsta robe (T2R2C3 = "Trgovina na malo mješovitom robom")
+        if custom.get("vrsta_djelatnosti"):
+            repl["Trgovina na malo mješovitom robom"] = custom["vrsta_djelatnosti"]
+        
+        # Površina (T4R0C12 = "84")
+        if custom.get("m2_poslovni") or custom.get("m2"):
+            m2_val = str(custom.get("m2_poslovni") or custom.get("m2", ""))
+            repl["84"] = m2_val
+        
+        # Datum početka rada (T5R0C2 = "01.02.2026")
+        if custom.get("datum_pocetka_rada"):
+            repl["01.02.2026"] = custom["datum_pocetka_rada"]
+        # Datum podnošenja (T5R3C2 = "27.01.2026")
+        repl["27.01.2026"] = today_str
+        
+        # Opis promjene
+        if custom.get("opis_promjene"):
+            # 6.Vrsta i opis promjene → ostavi placeholder
+            pass
+    
+    # "Prijava zanatstva" — sada koristi PDF overlay, ne DOCX. Skipuj stari DOCX kod.
+    # (Stari DOCX kod ispod je dead code — ostavljam za referencu ali se ne izvršava)
+    if False and ("prijava_zanatstva" in tname_lower or "prijava zanatstva" in tname_lower):
         # 1.1. Naziv/ime/Emri _____...
         if company_naziv:
             repl["1.1. Naziv/ime/Emri ________________________________________________________________"] = \
@@ -1676,9 +1717,6 @@ async def generate_document(req: DocumentGenerateRequest, username: str = Depend
     if not template_path.exists():
         raise HTTPException(404, "Šablon nije pronađen")
     
-    if template_path.suffix.lower() != '.docx':
-        raise HTTPException(400, "Trenutno se podržava samo .docx generisanje")
-    
     company = await db.companies.find_one({"id": req.company_id}, {"_id": 0})
     if not company:
         raise HTTPException(404, "Firma nije pronađena")
@@ -1688,6 +1726,31 @@ async def generate_document(req: DocumentGenerateRequest, username: str = Depend
         employee = await db.employees.find_one({"id": req.employee_id}, {"_id": 0})
     
     agency = await db.agency.find_one({}, {"_id": 0}) or Agency().model_dump()
+    
+    # === PDF FORM OVERLAY (za nove BRISEVA/HRANA/VODA/BAZENI/Prijava zanatstva) ===
+    from pdf_form_filler import is_pdf_form_template, fill_pdf_template
+    if is_pdf_form_template(req.template_filename):
+        output_filename = f"{uuid.uuid4().hex[:8]}_{template_path.stem}_{company.get('naziv_skraceni') or company.get('naziv','firma')[:20]}.pdf"
+        output_filename = re.sub(r'[^\w\s.-]', '_', output_filename).replace(' ', '_')
+        output_path = GENERATED_DIR / output_filename
+        ok = fill_pdf_template(req.template_filename, output_path, company, agency, req.custom_fields)
+        if not ok:
+            raise HTTPException(500, "Greška pri popunjavanju PDF šablona")
+        record = {
+            "id": str(uuid.uuid4()),
+            "filename": output_filename,
+            "pdf_filename": output_filename,
+            "template_filename": req.template_filename,
+            "company_id": req.company_id,
+            "employee_id": req.employee_id,
+            "created_by": username,
+            "created_at": datetime.now(timezone.utc).isoformat(),
+        }
+        await db.generated_documents.insert_one(record)
+        return {"success": True, "filename": output_filename, "pdf_filename": output_filename}
+    
+    if template_path.suffix.lower() != '.docx':
+        raise HTTPException(400, "Trenutno se podržava samo .docx generisanje")
     
     replacements = _build_replacements(company, employee, agency, req.custom_fields, req.template_filename)
     

@@ -20,6 +20,7 @@ export default function Documents() {
   const [selectedTemplate, setSelectedTemplate] = useState(null);
 
   const [companyId, setCompanyId] = useState(initialCompany);
+  const [companySearch, setCompanySearch] = useState("");
   const [employeeId, setEmployeeId] = useState("");
   const [customFields, setCustomFields] = useState({});
   const [generating, setGenerating] = useState(false);
@@ -57,6 +58,18 @@ export default function Documents() {
     }
     return true;
   });
+  
+  const filteredCompanies = useMemo(() => {
+    if (!companySearch.trim()) return companies;
+    const s = companySearch.toLowerCase().trim();
+    return companies.filter((c) =>
+      (c.naziv || "").toLowerCase().includes(s) ||
+      (c.naziv_skraceni || "").toLowerCase().includes(s) ||
+      (c.pib || "").toLowerCase().includes(s) ||
+      (c.direktor_ime || "").toLowerCase().includes(s) ||
+      (c.grad || "").toLowerCase().includes(s)
+    );
+  }, [companies, companySearch]);
 
   const openGenerate = (template) => {
     setSelectedTemplate(template);
@@ -224,20 +237,36 @@ export default function Documents() {
               {!genResult ? (
                 <>
                   <div className="field-group" style={{ marginBottom: 14 }}>
-                    <label className="field-label">Firma *</label>
+                    <label className="field-label">Firma * (pretraži po nazivu, PIB-u, direktoru)</label>
+                    <input
+                      type="text"
+                      className="input"
+                      placeholder="Npr. hotel, marini, 03801969..."
+                      value={companySearch}
+                      onChange={(e) => setCompanySearch(e.target.value)}
+                      data-testid="gen-company-search"
+                      style={{ marginBottom: 6 }}
+                    />
                     <select
                       className="select"
                       value={companyId}
                       onChange={(e) => setCompanyId(e.target.value)}
                       data-testid="gen-company-select"
+                      size={Math.min(8, Math.max(3, filteredCompanies.length))}
+                      style={{ height: "auto", paddingTop: 4, paddingBottom: 4 }}
                     >
-                      <option value="">— Odaberi firmu —</option>
-                      {companies.map((c) => (
+                      {filteredCompanies.length === 0 && (
+                        <option disabled value="">Nema rezultata za "{companySearch}"</option>
+                      )}
+                      {filteredCompanies.map((c) => (
                         <option key={c.id} value={c.id}>
-                          {c.naziv} ({c.pib})
+                          {c.naziv} {c.pib ? `· PIB ${c.pib}` : ""}
                         </option>
                       ))}
                     </select>
+                    <div style={{ fontSize: 11.5, color: "var(--text-tertiary)", marginTop: 4 }}>
+                      Prikazano: {filteredCompanies.length} / {companies.length}
+                    </div>
                   </div>
 
                   {employees.length > 0 && (
@@ -257,6 +286,22 @@ export default function Documents() {
                         ))}
                       </select>
                     </div>
+                  )}
+                  
+                  {/* Extras za Prijava zanatstva i Prijava trgovine */}
+                  {selectedTemplate && (
+                    (selectedTemplate.filename.toLowerCase().includes("prijava zanatstva") ||
+                     selectedTemplate.filename.toLowerCase().includes("prijava_zanatstva") ||
+                     selectedTemplate.filename.toLowerCase().includes("prijava trgovine") ||
+                     selectedTemplate.filename.toLowerCase().includes("prijava_trgovine") ||
+                     selectedTemplate.filename.toLowerCase().includes("prijava trgovinu") ||
+                     selectedTemplate.filename.toLowerCase().includes("prijava trgovin")) && (
+                      <ExtrasPrijava
+                        template={selectedTemplate}
+                        values={customFields}
+                        onChange={setCustomFields}
+                      />
+                    )
                   )}
 
                   <div style={{ padding: 12, background: "#f8fafc", borderRadius: 8, fontSize: 12.5, color: "var(--text-secondary)" }}>
@@ -318,6 +363,150 @@ export default function Documents() {
               </div>
             )}
           </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+
+function ExtrasPrijava({ template, values, onChange }) {
+  const isZanatstvo = template.filename.toLowerCase().includes("zanatstv");
+  const isTrgovina = template.filename.toLowerCase().includes("trgovin");
+  const today = new Date().toISOString().slice(0, 10);
+  
+  const u = (k, v) => onChange({ ...values, [k]: v });
+  
+  const tip = values.tip_prijave || "pocetak";
+  
+  return (
+    <div style={{ borderTop: "1px solid var(--border)", paddingTop: 14, marginTop: 14, marginBottom: 14 }}>
+      <div style={{ fontSize: 11.5, fontWeight: 600, color: "var(--text-tertiary)", letterSpacing: "0.08em", textTransform: "uppercase", marginBottom: 10 }}>
+        Dodatni podaci za prijavu {isZanatstvo ? "zanatstva" : "trgovine"}
+      </div>
+      
+      {/* Tip prijave: početak / promjena */}
+      <div className="field-group" style={{ marginBottom: 12 }}>
+        <label className="field-label">Tip prijave</label>
+        <div style={{ display: "flex", gap: 16 }}>
+          <label style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 13, cursor: "pointer" }}>
+            <input
+              type="radio"
+              name="tip_prijave"
+              checked={tip === "pocetak"}
+              onChange={() => u("tip_prijave", "pocetak")}
+              data-testid="tip-pocetak"
+            />
+            Početak rada
+          </label>
+          <label style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 13, cursor: "pointer" }}>
+            <input
+              type="radio"
+              name="tip_prijave"
+              checked={tip === "promjena"}
+              onChange={() => u("tip_prijave", "promjena")}
+              data-testid="tip-promjena"
+            />
+            Promjena podataka
+          </label>
+        </div>
+      </div>
+      
+      {/* Sjedište + Adresa objekta */}
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginBottom: 12 }}>
+        <div className="field-group">
+          <label className="field-label">Sjedište (grad)</label>
+          <input
+            className="input"
+            placeholder="Ulcinj"
+            value={values[isZanatstvo ? "sjediste_zanatstva" : "sjediste_objekta"] || ""}
+            onChange={(e) => u(isZanatstvo ? "sjediste_zanatstva" : "sjediste_objekta", e.target.value)}
+          />
+        </div>
+        <div className="field-group">
+          <label className="field-label">Adresa objekta</label>
+          <input
+            className="input"
+            placeholder="Ulica i broj"
+            value={values[isZanatstvo ? "adresa_zanatstva" : "adresa_objekta"] || ""}
+            onChange={(e) => u(isZanatstvo ? "adresa_zanatstva" : "adresa_objekta", e.target.value)}
+          />
+        </div>
+      </div>
+      
+      {/* Vrsta djelatnosti / zanata */}
+      <div className="field-group" style={{ marginBottom: 12 }}>
+        <label className="field-label">{isZanatstvo ? "Vrsta zanata" : "Vrsta djelatnosti"}</label>
+        <input
+          className="input"
+          placeholder={isZanatstvo ? "Npr. Frizerski salon, Servis, Krojač..." : "Npr. Prodavnica prehrambene robe"}
+          value={values[isZanatstvo ? "vrsta_zanata" : "vrsta_djelatnosti"] || ""}
+          onChange={(e) => u(isZanatstvo ? "vrsta_zanata" : "vrsta_djelatnosti", e.target.value)}
+        />
+      </div>
+      
+      {/* Površina m² */}
+      <div style={{ display: "grid", gridTemplateColumns: isZanatstvo ? "1fr 1fr" : "1fr", gap: 10, marginBottom: 12 }}>
+        <div className="field-group">
+          <label className="field-label">{isZanatstvo ? "Poslovni prostor (m²)" : "Površina prodavnice (m²)"}</label>
+          <input
+            className="input"
+            type="number"
+            min="1"
+            placeholder="Npr. 35"
+            value={values.m2_poslovni || values.m2 || ""}
+            onChange={(e) => u("m2_poslovni", e.target.value)}
+          />
+        </div>
+        {isZanatstvo && (
+          <div className="field-group">
+            <label className="field-label">Stambeni prostor (m²) – opciono</label>
+            <input
+              className="input"
+              type="number"
+              min="0"
+              placeholder="0"
+              value={values.m2_stambeni || ""}
+              onChange={(e) => u("m2_stambeni", e.target.value)}
+            />
+          </div>
+        )}
+      </div>
+      
+      {/* Datum početka rada */}
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
+        <div className="field-group">
+          <label className="field-label">Datum početka rada</label>
+          <input
+            className="input"
+            type="date"
+            value={values.datum_pocetka_rada_iso || ""}
+            onChange={(e) => {
+              const iso = e.target.value;
+              const dt = iso ? iso.split("-").reverse().join(".") : "";
+              onChange({ ...values, datum_pocetka_rada_iso: iso, datum_pocetka_rada: dt });
+            }}
+            data-testid="datum-pocetka-rada"
+          />
+        </div>
+        <div className="field-group">
+          <label className="field-label">Datum podnošenja</label>
+          <input className="input" type="date" value={today} disabled readOnly style={{ background: "#f3f4f6" }} />
+          <div style={{ fontSize: 11, color: "var(--text-tertiary)", marginTop: 4 }}>Današnji datum (auto)</div>
+        </div>
+      </div>
+      
+      {/* Vrsta promjene — samo ako je tip = promjena */}
+      {tip === "promjena" && (
+        <div className="field-group" style={{ marginTop: 12 }}>
+          <label className="field-label">Opis promjene</label>
+          <textarea
+            className="input"
+            rows={2}
+            placeholder="Npr. promjena adrese, promjena djelatnosti..."
+            value={values.opis_promjene || ""}
+            onChange={(e) => u("opis_promjene", e.target.value)}
+          />
         </div>
       )}
     </div>
