@@ -8,7 +8,9 @@ import api from "@/lib/api";
 
 const empEmpty = {
   company_id: "",
-  ime: "", prezime: "", jmbg: "", licna_karta: "", adresa: "", grad: "",
+  ime: "", prezime: "", jmbg: "", licna_karta: "", pasos: "",
+  is_stranac: false, vrsta_isprave: "jmbg",
+  adresa: "", grad: "",
   pozicija: "", strucna_sprema: "", plata_bruto: 0, plata_neto: 0,
   datum_pocetka: "", datum_kraja: "", datum_prestanka: "",
   vrsta_ugovora: "neodredjeno", radno_vrijeme: "puno", sati_sedmicno: 40,
@@ -27,6 +29,7 @@ export default function Persons() {
   const [form, setForm] = useState(empEmpty);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
+  const [ponudaModal, setPonudaModal] = useState(null); // { person, type: 'nova'|'produzenje' }
 
   const load = async () => {
     setLoading(true);
@@ -117,6 +120,32 @@ export default function Persons() {
     }
   };
 
+  const printPonudaWithFields = async (person, type, fields, opts = {}) => {
+    if (!person?.id || !person?.company_id) return;
+    const template = type === "produzenje"
+      ? "PISANA PONUDA ZA PRODUZENJE DOZVOLE ZA BORAVAK I RAD.docx"
+      : "PISANA PONUDA ZA BORAVAK I RAD.docx";
+    try {
+      const r = await api.post("/documents/generate", {
+        template_filename: template,
+        company_id: person.company_id,
+        employee_id: person.id,
+        custom_fields: fields,
+      });
+      if (r.data?.pdf_filename) {
+        const tokenStr = localStorage.getItem("token") || "";
+        const url = `${process.env.REACT_APP_BACKEND_URL}/api/documents/preview/${encodeURIComponent(r.data.pdf_filename)}?token=${tokenStr}`;
+        window.open(url, "_blank");
+        if (opts.closeModal) setModalOpen(false);
+        setPonudaModal(null);
+      } else {
+        alert("PDF nije mogao da se generiše");
+      }
+    } catch (e) {
+      alert(`Greška: ${e.response?.data?.detail || e.message}`);
+    }
+  };
+
   const saveAndPrint = async () => {
     if (!form.ime || !form.prezime || !form.company_id) {
       setError("Ime, prezime i firma su obavezni");
@@ -140,6 +169,36 @@ export default function Persons() {
       }
       await printUgovor(savedPerson, { closeModal: true });
       load();
+    } catch (e) {
+      setError(e.response?.data?.detail || "Greška");
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const saveAndPrintPonuda = async (type) => {
+    if (!form.ime || !form.prezime || !form.company_id) {
+      setError("Ime, prezime i firma su obavezni");
+      return;
+    }
+    setSaving(true);
+    try {
+      const payload = {
+        ...form,
+        plata_bruto: Number(form.plata_bruto) || 0,
+        plata_neto: Number(form.plata_neto) || 0,
+        sati_sedmicno: Number(form.sati_sedmicno) || 40,
+      };
+      let savedPerson;
+      if (editing) {
+        await api.put(`/employees/${editing.id}`, payload);
+        savedPerson = { ...editing, ...payload };
+      } else {
+        const r = await api.post(`/employees`, payload);
+        savedPerson = r.data;
+      }
+      load();
+      setPonudaModal({ person: savedPerson, type });
     } catch (e) {
       setError(e.response?.data?.detail || "Greška");
     } finally {
@@ -283,14 +342,23 @@ export default function Persons() {
           form={form} setForm={setForm} editing={editing} companies={companies}
           onSave={save} onClose={() => setModalOpen(false)}
           onSaveAndPrint={saveAndPrint}
+          onSaveAndPrintPonuda={saveAndPrintPonuda}
           saving={saving} error={error}
+        />
+      )}
+      {ponudaModal && (
+        <PonudaModal
+          person={ponudaModal.person}
+          type={ponudaModal.type}
+          onClose={() => setPonudaModal(null)}
+          onGenerate={(fields) => printPonudaWithFields(ponudaModal.person, ponudaModal.type, fields, { closeModal: true })}
         />
       )}
     </div>
   );
 }
 
-function PersonModal({ form, setForm, editing, companies, onSave, onClose, onSaveAndPrint, saving, error }) {
+function PersonModal({ form, setForm, editing, companies, onSave, onClose, onSaveAndPrint, onSaveAndPrintPonuda, saving, error }) {
   const u = (k, v) => setForm({ ...form, [k]: v });
   return (
     <div className="modal-backdrop" onClick={onClose} data-testid="person-modal">
@@ -319,8 +387,49 @@ function PersonModal({ form, setForm, editing, companies, onSave, onClose, onSav
             </div>
             <Field label="Ime *" value={form.ime} onChange={(v) => u("ime", v)} testid="person-ime" />
             <Field label="Prezime *" value={form.prezime} onChange={(v) => u("prezime", v)} testid="person-prezime" />
+            
+            <div className="field-group" style={{ gridColumn: "1/-1", padding: "10px 12px", background: form.is_stranac ? "#fef3c7" : "#f0fdf4", borderRadius: 8, border: `1px solid ${form.is_stranac ? "#fbbf24" : "#86efac"}` }}>
+              <label style={{ display: "flex", alignItems: "center", gap: 10, cursor: "pointer", fontSize: 13.5, fontWeight: 500 }}>
+                <input
+                  type="checkbox"
+                  checked={!!form.is_stranac}
+                  onChange={(e) => u("is_stranac", e.target.checked)}
+                  data-testid="person-is-stranac"
+                  style={{ width: 18, height: 18 }}
+                />
+                {form.is_stranac ? "🌍 Strani državljanin" : "🇲🇪 Domaće lice (Crna Gora)"}
+              </label>
+              <div style={{ fontSize: 11.5, color: "var(--text-tertiary)", marginTop: 6, marginLeft: 28 }}>
+                {form.is_stranac 
+                  ? "Za pisane ponude za boravak i rad — koristiće se broj pasoša ili lične karte." 
+                  : "Standardno crnogorsko fizičko lice — koristiće se JMBG."}
+              </div>
+            </div>
+            
             <Field label="JMBG" value={form.jmbg} onChange={(v) => u("jmbg", v)} testid="person-jmbg" />
             <Field label="Lična karta" value={form.licna_karta} onChange={(v) => u("licna_karta", v)} />
+            {form.is_stranac && (
+              <>
+                <Field label="Broj pasoša" value={form.pasos} onChange={(v) => u("pasos", v)} testid="person-pasos" />
+                <div className="field-group">
+                  <label className="field-label">Vrsta isprave za pisanu ponudu</label>
+                  <select
+                    className="select"
+                    value={form.vrsta_isprave || "pasos"}
+                    onChange={(e) => u("vrsta_isprave", e.target.value)}
+                    data-testid="person-vrsta-isprave"
+                  >
+                    <option value="pasos">Pasoš</option>
+                    <option value="licna_karta">Lična karta</option>
+                    <option value="jmbg">JMBG (jedinstveni matični)</option>
+                  </select>
+                  <div style={{ fontSize: 11, color: "var(--text-tertiary)", marginTop: 4 }}>
+                    Koji broj ide u rubriku JMBG/BROJ ISPRAVE u pisanoj ponudi.
+                  </div>
+                </div>
+              </>
+            )}
+            
             <Field label="Adresa stanovanja" value={form.adresa} onChange={(v) => u("adresa", v)} />
             <Field label="Grad" value={form.grad} onChange={(v) => u("grad", v)} />
             <Field label="Radno mjesto (pozicija) ⭐" value={form.pozicija} onChange={(v) => u("pozicija", v)} testid="person-pozicija" />
@@ -386,7 +495,7 @@ function PersonModal({ form, setForm, editing, companies, onSave, onClose, onSav
             </div>
           )}
         </div>
-        <div className="modal-footer">
+        <div className="modal-footer" style={{ flexWrap: "wrap" }}>
           <button className="btn btn-secondary" onClick={onClose}>Odustani</button>
           <button
             className="btn btn-secondary"
@@ -398,6 +507,32 @@ function PersonModal({ form, setForm, editing, companies, onSave, onClose, onSav
             <Printer size={14} />
             Sačuvaj i štampaj ugovor
           </button>
+          {form.is_stranac && (
+            <>
+              <button
+                className="btn btn-secondary"
+                onClick={() => onSaveAndPrintPonuda("nova")}
+                disabled={saving || !form.ime || !form.prezime || !form.company_id}
+                data-testid="save-and-print-ponuda-nova-btn"
+                title="Sačuvaj i generiši pisanu ponudu za novi boravak i rad"
+                style={{ background: "#fef3c7", borderColor: "#fbbf24", color: "#92400e" }}
+              >
+                <Printer size={14} />
+                Pisana ponuda (novi boravak)
+              </button>
+              <button
+                className="btn btn-secondary"
+                onClick={() => onSaveAndPrintPonuda("produzenje")}
+                disabled={saving || !form.ime || !form.prezime || !form.company_id}
+                data-testid="save-and-print-ponuda-produzenje-btn"
+                title="Sačuvaj i generiši pisanu ponudu za produženje dozvole"
+                style={{ background: "#fef3c7", borderColor: "#fbbf24", color: "#92400e" }}
+              >
+                <Printer size={14} />
+                Pisana ponuda (produženje)
+              </button>
+            </>
+          )}
           <button className="btn btn-primary" onClick={onSave} disabled={saving} data-testid="save-person-btn">
             {saving ? <Spinner size={14} className="spin" /> : <Check size={14} />}
             Sačuvaj
@@ -414,3 +549,104 @@ const Field = ({ label, value, onChange, testid, type = "text" }) => (
     <input className="input" type={type} value={value ?? ""} onChange={(e) => onChange(e.target.value)} data-testid={testid} />
   </div>
 );
+
+function PonudaModal({ person, type, onClose, onGenerate }) {
+  const today = new Date().toISOString().slice(0, 10);
+  // Za "produženje" — default radni odnos od današnjeg datuma + 1 godina; za "nova" — isto
+  const oneYearLater = new Date();
+  oneYearLater.setFullYear(oneYearLater.getFullYear() + 1);
+  oneYearLater.setDate(oneYearLater.getDate() - 1);
+  const defaultDo = oneYearLater.toISOString().slice(0, 10);
+  
+  const [datumPonude, setDatumPonude] = useState(today);
+  const [datumOd, setDatumOd] = useState(today);
+  const [datumDo, setDatumDo] = useState(defaultDo);
+  const [busy, setBusy] = useState(false);
+  
+  const submit = async () => {
+    setBusy(true);
+    await onGenerate({
+      datum_ponude: datumPonude,
+      datum_rad_od: datumOd,
+      datum_rad_do: datumDo,
+    });
+    setBusy(false);
+  };
+  
+  const title = type === "produzenje"
+    ? "Pisana ponuda za PRODUŽENJE dozvole za boravak i rad"
+    : "Pisana ponuda za NOVI boravak i rad";
+  
+  return (
+    <div className="modal-backdrop" onClick={onClose} data-testid="ponuda-modal">
+      <div className="modal animate-slide-up" onClick={(e) => e.stopPropagation()} style={{ maxWidth: 540 }}>
+        <div className="modal-header">
+          <div>
+            <div className="modal-title">{title}</div>
+            <div style={{ fontSize: 12.5, color: "var(--text-tertiary)", marginTop: 2 }}>
+              za: <strong>{person?.ime} {person?.prezime}</strong>
+            </div>
+          </div>
+          <button onClick={onClose} style={{ border: "none", background: "transparent", padding: 6 }}><X size={18} /></button>
+        </div>
+        <div className="modal-body">
+          <div style={{ padding: "10px 12px", background: "#fef3c7", borderRadius: 8, marginBottom: 16, fontSize: 12.5, color: "#92400e", borderLeft: "3px solid #fbbf24" }}>
+            💡 Broj zavedene ponude se <strong>automatski generiše</strong> po redu za ovu firmu (npr. <code>01/2026</code>, <code>02/2026</code>...). Iznos plate, ime, JMBG/pasoš i radno mjesto se uzimaju iz podataka zaposlenog.
+          </div>
+          
+          <div className="field-group" style={{ marginBottom: 14 }}>
+            <label className="field-label">Datum štampe ponude (gornji datum u dokumentu)</label>
+            <input
+              className="input" type="date"
+              value={datumPonude}
+              onChange={(e) => setDatumPonude(e.target.value)}
+              data-testid="ponuda-datum-stampe"
+            />
+            <div style={{ fontSize: 11, color: "var(--text-tertiary)", marginTop: 4 }}>
+              Standardno današnji — promijenite ako želite drugi datum.
+            </div>
+          </div>
+          
+          <div style={{ padding: 12, background: "#f8fafc", borderRadius: 8 }}>
+            <div style={{ fontSize: 13, fontWeight: 600, marginBottom: 8 }}>Član 2 — Radni odnos na određeno vrijeme</div>
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
+              <div className="field-group">
+                <label className="field-label">Datum od (početak radnog odnosa)</label>
+                <input
+                  className="input" type="date"
+                  value={datumOd}
+                  onChange={(e) => setDatumOd(e.target.value)}
+                  data-testid="ponuda-datum-od"
+                />
+              </div>
+              <div className="field-group">
+                <label className="field-label">Datum do (kraj)</label>
+                <input
+                  className="input" type="date"
+                  value={datumDo}
+                  onChange={(e) => setDatumDo(e.target.value)}
+                  data-testid="ponuda-datum-do"
+                />
+              </div>
+            </div>
+            <div style={{ fontSize: 11, color: "var(--text-tertiary)", marginTop: 6 }}>
+              Ostavite prazno ako klijent treba da popuni u Wordu — onda će biti crtice.
+            </div>
+          </div>
+        </div>
+        <div className="modal-footer">
+          <button className="btn btn-secondary" onClick={onClose}>Odustani</button>
+          <button
+            className="btn btn-primary"
+            onClick={submit}
+            disabled={busy}
+            data-testid="ponuda-generate-btn"
+          >
+            {busy ? <Spinner size={14} className="spin" /> : <Printer size={14} />}
+            Generiši i otvori
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}

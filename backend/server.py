@@ -141,6 +141,9 @@ class Employee(BaseModel):
     prezime: str
     jmbg: str = ""
     licna_karta: str = ""
+    pasos: str = ""  # broj pasoša (za strance)
+    is_stranac: bool = False  # da li je lice strani državljanin
+    vrsta_isprave: str = "jmbg"  # jmbg / licna_karta / pasos — šta koristiti u pisanim ponudama
     adresa: str = ""
     grad: str = ""
     pozicija: str = ""
@@ -164,6 +167,9 @@ class EmployeeCreate(BaseModel):
     prezime: str
     jmbg: Optional[str] = ""
     licna_karta: Optional[str] = ""
+    pasos: Optional[str] = ""
+    is_stranac: Optional[bool] = False
+    vrsta_isprave: Optional[str] = "jmbg"
     adresa: Optional[str] = ""
     grad: Optional[str] = ""
     pozicija: Optional[str] = ""
@@ -1635,6 +1641,142 @@ def _build_replacements(company: dict, employee: Optional[dict], agency: dict, c
             repl["kod PRVA BANKA"] = "kod ____________________"
             repl["PRVA BANKA"] = "____________________"
     
+    # PISANA PONUDA ZA BORAVAK I RAD / PRODUZENJE
+    if "pisana ponuda" in tname_lower:
+        # Hardkodirana imena firmi i direktora u template-ima — zamijeni sa pravim
+        # "Boravak i rad" template ima MARINI GROUP / ARIAN MARINI
+        # "Produzenje" template ima UNICO COMPANY / EDONA BOLJEVIĆ
+        sample_firme = [
+            'DRUŠTVO SA OGRANIČENOM ODGOVORNOŠĆU "MARINI GROUP" ULCINJ',
+            '"UNICO COMPANY" DOO ULCINJ ',
+            '"UNICO COMPANY" DOO ULCINJ',
+        ]
+        sample_direktori = [
+            ("ARIAN MARINI", "3105998220014"),
+            ("EDONA BOLJEVIĆ ", "1402991228025"),
+            ("EDONA BOLJEVIĆ", "1402991228025"),
+        ]
+        sample_pibovi = ["03796841", "03420205"]
+        
+        # Zamijeni naziv firme
+        firma_target = company_naziv or "____________"
+        for s in sample_firme:
+            repl[s] = firma_target
+        
+        # Zamijeni PIB
+        if company_pib:
+            for p in sample_pibovi:
+                repl[p] = company_pib
+                repl[f"PIB:\t{p}"] = f"PIB:\t{company_pib}"
+                repl[f"PIB:{p}"] = f"PIB:{company_pib}"
+        
+        # Zamijeni direktora
+        if direktor_ime and direktor_ime != "________________":
+            for d_name, d_jmb in sample_direktori:
+                repl[d_name] = direktor_ime
+            # JMB direktora — iz agency.direktor_jmbg ili prvi zaposlenik?
+            ag_dir_jmb = agency.get("direktor_jmbg", "") or company.get("jmbg_direktora", "")
+            if ag_dir_jmb:
+                for d_name, d_jmb in sample_direktori:
+                    repl[f"JMB {d_jmb}"] = f"JMB {ag_dir_jmb}"
+                    repl[d_jmb] = ag_dir_jmb
+        
+        # 1) Broj zavedene ponude — generisan u generate_document funkciji i prosljeđen kroz custom
+        broj_ponude = custom.get("broj_ponude") or ""
+        if broj_ponude:
+            repl["BROJ: 10/2026"] = f"BROJ: {broj_ponude}"
+            repl["BROJ:11/2026"] = f"BROJ: {broj_ponude}"
+            repl["BROJ: 11/2026"] = f"BROJ: {broj_ponude}"
+            repl["BROJ:10/2026"] = f"BROJ: {broj_ponude}"
+        
+        # 2) Datum štampe ponude (gore u headeru i u P4 "je dana XX.XX.XXXX godine donio odluku")
+        datum_ponude_raw = custom.get("datum_ponude") or ""
+        if datum_ponude_raw:
+            datum_ponude_str = _format_date(str(datum_ponude_raw))
+        else:
+            datum_ponude_str = today_str
+        # Header datumi
+        repl["Ulcinj, 04.03.2026godine"] = f"{header_city}, {datum_ponude_str} godine"
+        repl["Ulcinj, 04.03.2026 godine"] = f"{header_city}, {datum_ponude_str} godine"
+        repl["Ulcinj, 04.03.2026"] = f"{header_city}, {datum_ponude_str}"
+        repl["Ulcinj, 13.05.2026"] = f"{header_city}, {datum_ponude_str}"
+        # P4: "je dana 04.03.2026 godine, donio odluku"
+        repl["je dana 04.03.2026 godine"] = f"je dana {datum_ponude_str} godine"
+        repl["je dana 04.03.2026"] = f"je dana {datum_ponude_str}"
+        repl["je dana 13.05.2026 ,godine"] = f"je dana {datum_ponude_str}, godine"
+        repl["je dana 13.05.2026"] = f"je dana {datum_ponude_str}"
+        repl["04.03.2026"] = datum_ponude_str
+        repl["13.05.2026"] = datum_ponude_str
+        
+        # 3) Član 2 — radni odnos zasniva se / produžava se na određeno
+        # "počev od 04.03.2026-03.03.2027.god."
+        datum_od_raw = custom.get("datum_rad_od") or ""
+        datum_do_raw = custom.get("datum_rad_do") or ""
+        datum_od = _format_date(str(datum_od_raw)) if datum_od_raw else "__________"
+        datum_do = _format_date(str(datum_do_raw)) if datum_do_raw else "__________"
+        period_str = f"{datum_od}-{datum_do}.god."
+        # Originalni stringovi u dva template-a
+        repl["počev od  04.03.2026-03.03.2027.god."] = f"počev od {period_str}"
+        repl["počev od 04.03.2026-03.03.2027.god."] = f"počev od {period_str}"
+        repl["04.03.2026-03.03.2027.god."] = period_str
+        repl["počev od 25.05.2026-24.05.2027.god."] = f"počev od {period_str}"
+        repl["25.05.2026-24.05.2027.god."] = period_str
+        
+        # 4) Plata iz baze zaposlenog ako postoji
+        if employee:
+            emp_plata = employee.get("plata_neto") or 0
+            if emp_plata > 0:
+                plata_str = f"{float(emp_plata):.2f}"
+                repl["mjesečna neto zarada u iznosu od 600.00e"] = f"mjesečna neto zarada u iznosu od {plata_str}e"
+                repl["600.00e"] = f"{plata_str}e"
+        
+        # 5) JMBG / Broj isprave — uzima se na osnovu vrste_isprave i is_stranac
+        # Stari hardkodovani brojevi koji se zamjenjuju
+        if employee:
+            vrsta_isprave = (employee.get("vrsta_isprave") or "jmbg").lower()
+            is_stranac = bool(employee.get("is_stranac", False))
+            
+            # Logika izbora isprave
+            if is_stranac:
+                # Stranac: prioritet pasos > licna_karta > jmbg
+                if vrsta_isprave == "pasos" and employee.get("pasos"):
+                    broj_isprave = employee["pasos"]
+                elif vrsta_isprave == "licna_karta" and employee.get("licna_karta"):
+                    broj_isprave = employee["licna_karta"]
+                elif employee.get("pasos"):
+                    broj_isprave = employee["pasos"]
+                elif employee.get("licna_karta"):
+                    broj_isprave = employee["licna_karta"]
+                else:
+                    broj_isprave = employee.get("jmbg", "") or "____________"
+            else:
+                # Domaće lice: JMBG je standardno
+                broj_isprave = employee.get("jmbg", "") or employee.get("licna_karta", "") or "____________"
+            
+            # Sample brojevi iz template-a (JMBG/BROJ ISPRAVE 039066621 ili 039437802)
+            repl["JMBG/BROJ ISPRAVE 039066621"] = f"JMBG/BROJ ISPRAVE {broj_isprave}"
+            repl["JMBG/BROJ ISPRAVE 039437802"] = f"JMBG/BROJ ISPRAVE {broj_isprave}"
+            repl["039066621"] = broj_isprave
+            repl["039437802"] = broj_isprave
+            
+            # Ime i prezime zaposlenog (RENATO JAKU / RENATO PALOKA)
+            ime_prezime = f"{employee.get('ime','')} {employee.get('prezime','')}".strip().upper()
+            if ime_prezime:
+                repl["RENATO JAKU"] = ime_prezime
+                repl["RENATO PALOKA"] = ime_prezime
+            
+            # Boravište
+            boraviste = (employee.get("adresa") or "") + (", " + employee.get("grad", "") if employee.get("grad") else "")
+            boraviste = boraviste.strip(", ") or "____________"
+            repl["sa boravištem u ULCINJ ,u daljem"] = f"sa boravištem u {boraviste},u daljem"
+            repl["sa boravištem u Ulcinju,u daljem"] = f"sa boravištem u {boraviste},u daljem"
+            
+            # Pozicija (radno mjesto)
+            poz = employee.get("pozicija", "")
+            if poz:
+                repl["pomoćni radnik u gradjevinu"] = poz
+                repl["pomocni radnik"] = poz
+    
     return repl
 
 
@@ -1994,7 +2136,23 @@ async def generate_document(req: DocumentGenerateRequest, username: str = Depend
     if template_path.suffix.lower() != '.docx':
         raise HTTPException(400, "Trenutno se podržava samo .docx generisanje")
     
-    replacements = _build_replacements(company, employee, agency, req.custom_fields, req.template_filename)
+    # PISANA PONUDA — auto-inkrement brojača po firmi (osim ako je broj eksplicitno prosljeđen)
+    custom_fields_in = dict(req.custom_fields or {})
+    if "pisana ponuda" in req.template_filename.lower():
+        if not custom_fields_in.get("broj_ponude"):
+            # Atomski inkrement counter-a u companies kolekciji
+            now_year = datetime.now(timezone.utc).year
+            counter_field = f"ponuda_counter_{now_year}"
+            updated = await db.companies.find_one_and_update(
+                {"id": req.company_id},
+                {"$inc": {counter_field: 1}},
+                return_document=True,
+                projection={"_id": 0, counter_field: 1},
+            )
+            new_num = (updated or {}).get(counter_field, 1)
+            custom_fields_in["broj_ponude"] = f"{new_num:02d}/{now_year}"
+    
+    replacements = _build_replacements(company, employee, agency, custom_fields_in, req.template_filename)
     
     # Load template, replace, save
     doc = Document(str(template_path))
@@ -2046,7 +2204,7 @@ async def generate_document(req: DocumentGenerateRequest, username: str = Depend
         "company_naziv": company.get("naziv", ""),
         "employee_id": req.employee_id,
         "employee_naziv": f"{employee.get('ime','')} {employee.get('prezime','')}".strip() if employee else "",
-        "custom_fields": req.custom_fields or {},
+        "custom_fields": custom_fields_in or req.custom_fields or {},
         "created_at": datetime.now(timezone.utc).isoformat(),
         "created_by": username
     }
