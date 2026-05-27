@@ -240,6 +240,12 @@ class FoundingRequest(BaseModel):
     # Datumi
     datum_odluke: str = ""  # default = today
     osnovni_kapital: float = 1.00
+    
+    # Punomoćnik (Član 8.1 Odluke o osnivanju)
+    podnosi_punomocnik: bool = False  # da li se podnosi preko punomoćnika
+    punomocnik_ime_prezime: str = ""
+    punomocnik_jmbg: str = ""
+    punomocnik_adresa: str = ""
 
 
 class PaymentRecord(BaseModel):
@@ -2699,8 +2705,16 @@ def _build_founding_replacements(req: 'FoundingRequest') -> Dict[str, str]:
         'Sjedište društva je u: BRAJŠE BB ULCINJ': f'Sjedište društva je u: {sjediste_full}',
         'Sjedište društva je u: BRAJŠE  BB.ULCINJ': f'Sjedište društva je u: {sjediste_full}',
         'Sjedište društva je u: BRAJŠE   BB.ULCINJ': f'Sjedište društva je u: {sjediste_full}',
+        'Adresa sjedišta i adresa za prijem službene pošte je:': 'Adresa sjedišta i adresa za prijem službene pošte je:',
         'sjedište BRAJŠE BB ULCINJ': f'sjedište {sjediste_full}',
         'sjedište BRAJŠE BB.ULCINJ': f'sjedište {sjediste_full}',
+        
+        # === ADRESA OSNIVAČA u Odluci o osnivanju (P0 preambula i P63 potpis) ===
+        # P0: "ARJANA CEKOVIQ , JMB: ... sa prebivalištem na adresi BRAJŠE BB. ULCINJ, kao osnivač"
+        'prebivalištem na adresi BRAJŠE BB. ULCINJ': f'prebivalištem na adresi {req.osnivac_adresa}',
+        'prebivalištem na adresi BRAJŠE  BB. ULCINJ': f'prebivalištem na adresi {req.osnivac_adresa}',
+        'prebivalištem na adresi BRAJŠE BB.ULCINJ': f'prebivalištem na adresi {req.osnivac_adresa}',
+        'sa prebivalištem na adresi BRAJŠE': f'sa prebivalištem na adresi {req.osnivac_adresa.split(",")[0] if req.osnivac_adresa else "BRAJŠE"}',
         
         # === ADRESA PREBIVALIŠTA DIREKTORA (Statut Član 6 - P761, P765) ===
         'adresa prebivališta BRAJŠE  BB.ULCINJ': f'adresa prebivališta {direktor_adresa_full}',
@@ -2711,12 +2725,24 @@ def _build_founding_replacements(req: 'FoundingRequest') -> Dict[str, str]:
         'sa adresom prebivališta BRAJŠE  BB.ULCINJ': f'sa adresom prebivališta {direktor_adresa_full}',
         'sa adresom prebivališta BRAJŠE BB.ULCINJ': f'sa adresom prebivališta {direktor_adresa_full}',
         'sa adresom prebivališta BRAJŠE BB ULCINJ': f'sa adresom prebivališta {direktor_adresa_full}',
-        # SAGLASNOST: "adresa prebivališta BRAJŠE BB.ULCINJ" (od osnivača)
-        # Ovo je osnivač = direktor (default), pa direktor_adresa_full = osnivac_adresa kad je isti
         
-        # === ODLUKA O OSNIVANJU: "Osnivač ARJANA CEKOVIQ ... iz BRAJŠE BB.ULCINJ" — koristi adresu osnivača ===
-        # Specifične zamjene za adresu osnivača u Odluci i Imenovanju (već razdvojeno gore)
-        # Generic fallback za preostale 'BRAJŠE BB' (npr. samo "BRAJŠE BB ULCINJ" bez prefiksa)
+        # === PUNOMOĆNIK (Član 8.1 Odluke o osnivanju) ===
+        # Originalni text: "može zastupati punomoćnik –ARJANA CEKOVIQ , JMBG 2012985225015"
+        # Zamijena: ako podnosi_punomocnik=True → koristi unesene podatke
+        #          inače → ostavi crtice (osnivač sam podnosi)
+        'može zastupati punomoćnik –ARJANA CEKOVIQ , JMBG 2012985225015': (
+            f'može zastupati punomoćnik – {req.punomocnik_ime_prezime}, JMBG {req.punomocnik_jmbg}'
+            if req.podnosi_punomocnik and req.punomocnik_ime_prezime
+            else 'može zastupati punomoćnik – ____________________, JMBG ____________________'
+        ),
+        'može zastupati punomoćnik – ARJANA CEKOVIQ , JMBG 2012985225015': (
+            f'može zastupati punomoćnik – {req.punomocnik_ime_prezime}, JMBG {req.punomocnik_jmbg}'
+            if req.podnosi_punomocnik and req.punomocnik_ime_prezime
+            else 'može zastupati punomoćnik – ____________________, JMBG ____________________'
+        ),
+        
+        # === Generic fallback za preostale 'BRAJŠE BB' (npr. samo "BRAJŠE BB ULCINJ" bez prefiksa) ===
+        # Ovo ide ZADNJE jer su prethodne specifične zamjene preciznije
         'BRAJŠE BB ULCINJ': sjediste_full,
         'BRAJŠE BB.ULCINJ': sjediste_full,
         'BRAJŠE  BB.ULCINJ': sjediste_full,

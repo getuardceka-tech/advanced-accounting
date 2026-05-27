@@ -38,6 +38,12 @@ const initial = {
   datum_odluke: new Date().toISOString().slice(0, 10),
   osnovni_kapital: 1.0,
   direktor_pol: "M",  // M = muško (saglasan), Z = žensko (saglasna)
+  
+  // Punomoćnik (Član 8.1 Odluke o osnivanju)
+  podnosi_punomocnik: false,
+  punomocnik_ime_prezime: "",
+  punomocnik_jmbg: "",
+  punomocnik_adresa: "",
 };
 
 export default function OsnivanjeDOO() {
@@ -57,6 +63,10 @@ export default function OsnivanjeDOO() {
     if (!form.firma_naziv_skraceni) return "Skraćeni naziv firme je obavezan";
     if (!form.firma_sjediste_adresa) return "Sjedište firme je obavezno";
     if (!form.direktor_isti_kao_osnivac && !form.direktor_ime_prezime) return "Ime direktora je obavezno";
+    if (form.podnosi_punomocnik) {
+      if (!form.punomocnik_ime_prezime) return "Ime i prezime punomoćnika je obavezno";
+      if (!form.punomocnik_jmbg) return "JMBG punomoćnika je obavezan";
+    }
     return null;
   };
   
@@ -256,6 +266,57 @@ export default function OsnivanjeDOO() {
                 ? <Field label="Broj pasoša direktora" value={form.direktor_pasos} onChange={(v) => u("direktor_pasos", v)} />
                 : <Field label="JMBG direktora" value={form.direktor_jmb} onChange={(v) => u("direktor_jmb", v)} />}
               <Field label="Država" value={form.direktor_drzava} onChange={(v) => u("direktor_drzava", v)} />
+            </div>
+          )}
+        </Section>
+        
+        {/* === PUNOMOĆNIK (Član 8.1 Odluke) === */}
+        <Section icon={FileText} title="4. Punomoćnik (Član 8.1 Odluke)" color="#f59e0b">
+          <div className="field-group" style={{ padding: 12, background: form.podnosi_punomocnik ? "#fef3c7" : "#f8fafc", borderRadius: 8, border: `1px solid ${form.podnosi_punomocnik ? "#fbbf24" : "var(--border)"}`, marginBottom: 14 }}>
+            <label style={{ display: "flex", alignItems: "center", gap: 10, cursor: "pointer", fontSize: 13.5, fontWeight: 500 }}>
+              <input
+                type="checkbox"
+                checked={form.podnosi_punomocnik}
+                onChange={(e) => u("podnosi_punomocnik", e.target.checked)}
+                data-testid="punomocnik-toggle"
+                style={{ width: 18, height: 18 }}
+              />
+              {form.podnosi_punomocnik 
+                ? "📝 Podnosim zahtjev preko PUNOMOĆNIKA (npr. računovođa, advokat)" 
+                : "Osnivač sam podnosi zahtjev (bez punomoćnika)"}
+            </label>
+            <div style={{ fontSize: 11.5, color: "var(--text-tertiary)", marginTop: 6, marginLeft: 28 }}>
+              {form.podnosi_punomocnik 
+                ? "Unesi podatke punomoćnika koji će zastupati osnivača u postupku osnivanja firme." 
+                : "Ako se kasnije odlučiš za punomoćnika, štikliraj ovu opciju."}
+            </div>
+          </div>
+          
+          {form.podnosi_punomocnik && (
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 14 }}>
+              <Field 
+                label="Ime i prezime punomoćnika *" 
+                value={form.punomocnik_ime_prezime} 
+                onChange={(v) => u("punomocnik_ime_prezime", v.toUpperCase())} 
+                testid="punomocnik-ime"
+                placeholder="Ime i prezime"
+              />
+              <Field 
+                label="JMBG punomoćnika *" 
+                value={form.punomocnik_jmbg} 
+                onChange={(v) => u("punomocnik_jmbg", v)} 
+                testid="punomocnik-jmbg"
+                placeholder="13-cifreni JMBG"
+              />
+              <div style={{ gridColumn: "1/-1" }}>
+                <Field 
+                  label="Adresa punomoćnika (opciono)" 
+                  value={form.punomocnik_adresa} 
+                  onChange={(v) => u("punomocnik_adresa", v)} 
+                  testid="punomocnik-adresa"
+                  placeholder="Ulica, broj, grad"
+                />
+              </div>
             </div>
           )}
         </Section>
