@@ -2676,6 +2676,11 @@ def _build_founding_replacements(req: 'FoundingRequest') -> Dict[str, str]:
         tel_no_prefix = "____________"
         tel_full = "+382 ____________"
     
+    # === Adresa firme (sjedište) - puna adresa ===
+    sjediste_full = req.firma_sjediste_adresa  # već je puna, npr. "SELITA BB ULCINJ"
+    # === Adresa direktora (za Član 6 statuta) — pripada direktoru, ne firmi ===
+    direktor_adresa_full = direktor_adresa or sjediste_full  # fallback na firmu ako prazno
+    
     repl = {
         # === Vrsta djelatnosti opis (treba prvo da se zamijeni jer je dio fullname-a) ===
         'ZA PROIZVODNJU, PROMET I USLUGE': req.firma_vrsta_djelatnosti_opis,
@@ -2684,20 +2689,38 @@ def _build_founding_replacements(req: 'FoundingRequest') -> Dict[str, str]:
         'DRUŠTVO SA OGRANIČENOM ODGOVORNOŠĆU ZA PROIZVODNJU, PROMET I USLUGE "ELA&ART " ULCINJ': req.firma_naziv_pun,
         'DRUŠTVO SA OGRANIČENOM ODGOVORNOŠĆU ZA PROIZVODNJU, PROMET I USLUGE "ELA&ART" ULCINJ': req.firma_naziv_pun,
         'DRUŠTVO SA OGRANIČENOM ODGOVORNOŠĆU ZA PROIZVODNJU, PROMET I USLUGE " ELA&ART " ULCINJ': req.firma_naziv_pun,
-        # Cleanup leftover (kad već imamo zamjenu kroz djelatnost_opis)
         
         # === Skraćeni naziv ===
         'DOO "ELA&ART " ULCINJ': req.firma_naziv_skraceni,
         'DOO "ELA&ART" ULCINJ': req.firma_naziv_skraceni,
         
-        # === Adresa firme ===
-        'BRAJŠE   BB.ULCINJ': req.firma_sjediste_adresa,
-        'BRAJŠE  BB.ULCINJ': req.firma_sjediste_adresa,
-        'BRAJŠE BB.ULCINJ': req.firma_sjediste_adresa,
-        'BRAJŠE BB ULCINJ': req.firma_sjediste_adresa,
-        '  BB.ULCINJ': '',  # leftover (kad je BRAJŠE već zamijenjen)
-        ' BB.ULCINJ': '',
-        'BRAJŠE': req.firma_sjediste_adresa.split()[0] if req.firma_sjediste_adresa else 'BRAJŠE',
+        # === SJEDIŠTE FIRME (Statut P56 + razne pojavljivanja u Odluci/Imenovanju) ===
+        # Specifične fraze prvo (najduže) — kontekstualno preciznije
+        'Sjedište društva je u: BRAJŠE BB ULCINJ': f'Sjedište društva je u: {sjediste_full}',
+        'Sjedište društva je u: BRAJŠE  BB.ULCINJ': f'Sjedište društva je u: {sjediste_full}',
+        'Sjedište društva je u: BRAJŠE   BB.ULCINJ': f'Sjedište društva je u: {sjediste_full}',
+        'sjedište BRAJŠE BB ULCINJ': f'sjedište {sjediste_full}',
+        'sjedište BRAJŠE BB.ULCINJ': f'sjedište {sjediste_full}',
+        
+        # === ADRESA PREBIVALIŠTA DIREKTORA (Statut Član 6 - P761, P765) ===
+        'adresa prebivališta BRAJŠE  BB.ULCINJ': f'adresa prebivališta {direktor_adresa_full}',
+        'adresa prebivališta BRAJŠE   BB.ULCINJ': f'adresa prebivališta {direktor_adresa_full}',
+        'adresa prebivališta BRAJŠE BB.ULCINJ': f'adresa prebivališta {direktor_adresa_full}',
+        'adresa prebivališta BRAJŠE BB ULCINJ': f'adresa prebivališta {direktor_adresa_full}',
+        'sa adresom prebivališta BRAJŠE   BB.ULCINJ': f'sa adresom prebivališta {direktor_adresa_full}',
+        'sa adresom prebivališta BRAJŠE  BB.ULCINJ': f'sa adresom prebivališta {direktor_adresa_full}',
+        'sa adresom prebivališta BRAJŠE BB.ULCINJ': f'sa adresom prebivališta {direktor_adresa_full}',
+        'sa adresom prebivališta BRAJŠE BB ULCINJ': f'sa adresom prebivališta {direktor_adresa_full}',
+        # SAGLASNOST: "adresa prebivališta BRAJŠE BB.ULCINJ" (od osnivača)
+        # Ovo je osnivač = direktor (default), pa direktor_adresa_full = osnivac_adresa kad je isti
+        
+        # === ODLUKA O OSNIVANJU: "Osnivač ARJANA CEKOVIQ ... iz BRAJŠE BB.ULCINJ" — koristi adresu osnivača ===
+        # Specifične zamjene za adresu osnivača u Odluci i Imenovanju (već razdvojeno gore)
+        # Generic fallback za preostale 'BRAJŠE BB' (npr. samo "BRAJŠE BB ULCINJ" bez prefiksa)
+        'BRAJŠE BB ULCINJ': sjediste_full,
+        'BRAJŠE BB.ULCINJ': sjediste_full,
+        'BRAJŠE  BB.ULCINJ': sjediste_full,
+        'BRAJŠE   BB.ULCINJ': sjediste_full,
         
         # === Osnivač ===
         'ARJANA CEKOVIQ': req.osnivac_ime_prezime,
