@@ -2716,6 +2716,13 @@ def _build_founding_replacements(req: 'FoundingRequest') -> Dict[str, str]:
         'prebivalištem na adresi BRAJŠE BB.ULCINJ': f'prebivalištem na adresi {req.osnivac_adresa}',
         'sa prebivalištem na adresi BRAJŠE': f'sa prebivalištem na adresi {req.osnivac_adresa.split(",")[0] if req.osnivac_adresa else "BRAJŠE"}',
         
+        # === ADRESA OSNIVAČA u Statutu - preambula (P33: "sa adresom BRAJŠE BB.ULCINJ") ===
+        # Ovo se odnosi na osnivača, NE na sjedište firme!
+        'sa adresom BRAJŠE BB.ULCINJ': f'sa adresom {req.osnivac_adresa}',
+        'sa adresom BRAJŠE  BB.ULCINJ': f'sa adresom {req.osnivac_adresa}',
+        'sa adresom BRAJŠE BB. ULCINJ': f'sa adresom {req.osnivac_adresa}',
+        'sa adresom BRAJŠE BB ULCINJ': f'sa adresom {req.osnivac_adresa}',
+        
         # === ADRESA PREBIVALIŠTA DIREKTORA (Statut Član 6 - P761, P765) ===
         'adresa prebivališta BRAJŠE  BB.ULCINJ': f'adresa prebivališta {direktor_adresa_full}',
         'adresa prebivališta BRAJŠE   BB.ULCINJ': f'adresa prebivališta {direktor_adresa_full}',
