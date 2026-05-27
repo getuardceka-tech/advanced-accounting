@@ -202,6 +202,45 @@ class AneksRequest(BaseModel):
     razlog: Optional[str] = ""
     update_employee: bool = True  # ažurirati i polja zaposlenog u bazi
 
+
+class FoundingRequest(BaseModel):
+    """Podaci za generisanje 4 dokumenta osnivanja DOO firme."""
+    # Osnivač
+    osnivac_ime_prezime: str  # "ARJANA CEKOVIQ"
+    osnivac_is_stranac: bool = False
+    osnivac_jmb: str = ""  # ako domaći
+    osnivac_pasos: str = ""  # ako stranac
+    osnivac_drzava: str = "Crne Gore"  # "Crne Gore" ili "Albanija" itd.
+    osnivac_adresa: str = ""  # "BRAJŠE BB.ULCINJ"
+    osnivac_datum_rodjenja: str = ""  # za SAGLASNOST: "1985-12-20"
+    osnivac_procenat: float = 100.0  # % udjela
+    
+    # Firma
+    firma_naziv_pun: str  # "DRUŠTVO SA OGRANIČENOM ODGOVORNOŠĆU ... \"ELA&ART\" ULCINJ"
+    firma_naziv_skraceni: str  # "DOO \"ELA&ART\" ULCINJ"
+    firma_naziv_pecat: str = ""  # "ELA&ART" (ide u pečat)
+    firma_vrsta_djelatnosti_opis: str = "ZA PROIZVODNJU, PROMET I USLUGE"  # "ZA TRGOVINU" / "ZA UGOSTITELJSTVO" itd.
+    firma_sjediste_adresa: str  # "BRAJŠE BB ULCINJ"
+    firma_grad: str = "ULCINJ"
+    firma_telefon: str = ""
+    firma_email: str = ""
+    firma_sifra_djelatnosti: str = "47.11"
+    firma_naziv_djelatnosti: str = "Nespecijalizovana trgovina na malo pretežno hranom, pićima I duvanskim proizvodima"
+    
+    # Direktor (može biti isti kao osnivač)
+    direktor_isti_kao_osnivac: bool = True
+    direktor_ime_prezime: str = ""
+    direktor_is_stranac: bool = False
+    direktor_jmb: str = ""
+    direktor_pasos: str = ""
+    direktor_drzava: str = "Crne Gore"
+    direktor_adresa: str = ""
+    
+    # Datumi
+    datum_odluke: str = ""  # default = today
+    osnovni_kapital: float = 1.00
+
+
 class PaymentRecord(BaseModel):
     model_config = ConfigDict(extra="ignore")
     id: str = Field(default_factory=lambda: str(uuid.uuid4()))
@@ -2527,6 +2566,256 @@ async def generate_aneks(req: AneksRequest, username: str = Depends(get_current_
         "download_url": f"/api/documents/download/{output_filename}",
         "aneks_broj": aneks_broj,
         "record": record,
+    }
+
+
+# ============================================================================
+# OSNIVANJE DOO — generisanje 4 dokumenta (Odluka o osnivanju, Imenovanje
+# direktora, Saglasnost, Statut) na osnovu unetih podataka.
+# ============================================================================
+
+def _remove_yellow_highlights(doc: Document):
+    """Ukloni žute highlight-ove sa svih runova (koristi se kao marker u template-ima)."""
+    from docx.enum.text import WD_COLOR_INDEX
+    for para in doc.paragraphs:
+        for run in para.runs:
+            try:
+                if run.font.highlight_color == WD_COLOR_INDEX.YELLOW:
+                    run.font.highlight_color = None
+            except Exception:
+                pass
+    for table in doc.tables:
+        for row in table.rows:
+            for cell in row.cells:
+                for para in cell.paragraphs:
+                    for run in para.runs:
+                        try:
+                            if run.font.highlight_color == WD_COLOR_INDEX.YELLOW:
+                                run.font.highlight_color = None
+                        except Exception:
+                            pass
+
+
+def _build_founding_replacements(req: 'FoundingRequest') -> Dict[str, str]:
+    """Mapira sve hardkodirane vrijednosti iz 4 šablona na korisnikove podatke."""
+    # Datum
+    if req.datum_odluke:
+        try:
+            dt = datetime.fromisoformat(req.datum_odluke.replace('Z', ''))
+            datum_str = dt.strftime("%d.%m.%Y")
+        except Exception:
+            datum_str = req.datum_odluke
+    else:
+        datum_str = datetime.now(timezone.utc).strftime("%d.%m.%Y")
+    
+    # Mjesec i godina (za statut headera)
+    try:
+        dt2 = datetime.fromisoformat((req.datum_odluke or datetime.now(timezone.utc).isoformat()).replace('Z', ''))
+        mjeseci = ["JANUAR", "FEBRUAR", "MART", "APRIL", "MAJ", "JUN", "JUL", "AVGUST", "SEPTEMBAR", "OKTOBAR", "NOVEMBAR", "DECEMBAR"]
+        mjesec_name = mjeseci[dt2.month - 1]
+        godina_int = dt2.year
+    except Exception:
+        mjesec_name = "MAJ"
+        godina_int = datetime.now(timezone.utc).year
+    
+    # Osnivač isprava
+    if req.osnivac_is_stranac:
+        osnivac_jmb_label = "Br. pasoša"
+        osnivac_jmb_value = req.osnivac_pasos or "____________"
+    else:
+        osnivac_jmb_label = "JMB"
+        osnivac_jmb_value = req.osnivac_jmb or "____________"
+    
+    # Direktor (može biti isti kao osnivač)
+    if req.direktor_isti_kao_osnivac:
+        direktor_ime = req.osnivac_ime_prezime
+        direktor_jmb = osnivac_jmb_value
+        direktor_drzava = req.osnivac_drzava
+        direktor_adresa = req.osnivac_adresa
+    else:
+        direktor_ime = req.direktor_ime_prezime
+        if req.direktor_is_stranac:
+            direktor_jmb = req.direktor_pasos or "____________"
+        else:
+            direktor_jmb = req.direktor_jmb or "____________"
+        direktor_drzava = req.direktor_drzava
+        direktor_adresa = req.direktor_adresa
+    
+    # Datum rođenja (za saglasnost)
+    if req.osnivac_datum_rodjenja:
+        try:
+            dr = datetime.fromisoformat(req.osnivac_datum_rodjenja.replace('Z', ''))
+            datum_rod_str = dr.strftime("%d.%m.%Y")
+        except Exception:
+            datum_rod_str = req.osnivac_datum_rodjenja
+    else:
+        datum_rod_str = "__.__.____"
+    
+    # Naziv pečata (default = skraćeni bez DOO)
+    pecat = req.firma_naziv_pecat or req.firma_naziv_skraceni.replace("DOO", "").replace("\"", "").replace("ULCINJ", "").strip()
+    
+    # ===== Hardkodirane vrijednosti iz template-a koje se zamjenjuju =====
+    # Sve sa "ELA&ART" / "ARJANA CEKOVIQ" itd. su sample, mapiramo ih na korisnikove vrijednosti.
+    
+    # Telefon - parsiraj na "+382" prefix i broj
+    tel_raw = (req.firma_telefon or "").strip()
+    if tel_raw:
+        # Ukloni prefix "+382 " ili "+382"
+        tel_no_prefix = tel_raw.replace('+382 ', '').replace('+382', '').strip()
+        tel_full = tel_raw if tel_raw.startswith('+') else f"+382 {tel_no_prefix}"
+    else:
+        tel_no_prefix = "____________"
+        tel_full = "+382 ____________"
+    
+    repl = {
+        # === Vrsta djelatnosti opis (treba prvo da se zamijeni jer je dio fullname-a) ===
+        'ZA PROIZVODNJU, PROMET I USLUGE': req.firma_vrsta_djelatnosti_opis,
+        
+        # === FIRMA - pun naziv (u Odluci, Imenovanju, Saglasnosti — gdje je u 1 runu) ===
+        'DRUŠTVO SA OGRANIČENOM ODGOVORNOŠĆU ZA PROIZVODNJU, PROMET I USLUGE "ELA&ART " ULCINJ': req.firma_naziv_pun,
+        'DRUŠTVO SA OGRANIČENOM ODGOVORNOŠĆU ZA PROIZVODNJU, PROMET I USLUGE "ELA&ART" ULCINJ': req.firma_naziv_pun,
+        'DRUŠTVO SA OGRANIČENOM ODGOVORNOŠĆU ZA PROIZVODNJU, PROMET I USLUGE " ELA&ART " ULCINJ': req.firma_naziv_pun,
+        # Cleanup leftover (kad već imamo zamjenu kroz djelatnost_opis)
+        
+        # === Skraćeni naziv ===
+        'DOO "ELA&ART " ULCINJ': req.firma_naziv_skraceni,
+        'DOO "ELA&ART" ULCINJ': req.firma_naziv_skraceni,
+        
+        # === Adresa firme ===
+        'BRAJŠE   BB.ULCINJ': req.firma_sjediste_adresa,
+        'BRAJŠE  BB.ULCINJ': req.firma_sjediste_adresa,
+        'BRAJŠE BB.ULCINJ': req.firma_sjediste_adresa,
+        'BRAJŠE BB ULCINJ': req.firma_sjediste_adresa,
+        '  BB.ULCINJ': '',  # leftover (kad je BRAJŠE već zamijenjen)
+        ' BB.ULCINJ': '',
+        'BRAJŠE': req.firma_sjediste_adresa.split()[0] if req.firma_sjediste_adresa else 'BRAJŠE',
+        
+        # === Osnivač ===
+        'ARJANA CEKOVIQ': req.osnivac_ime_prezime,
+        # === JMB osnivača ===
+        '2012985225015': osnivac_jmb_value,
+        'JMB: 2012985225015': f"{osnivac_jmb_label}: {osnivac_jmb_value}",
+        'JMB:2012985225015': f"{osnivac_jmb_label}:{osnivac_jmb_value}",
+        'JMBG 2012985225015': f"{osnivac_jmb_label} {osnivac_jmb_value}",
+        # Država
+        'iz  Crne Gore': f'iz {req.osnivac_drzava}',
+        'iz Crne Gore': f'iz {req.osnivac_drzava}',
+        ' Crne Gore': f' {req.osnivac_drzava}',
+        'Crne Gore': req.osnivac_drzava,
+        # Datum rođenja (samo u SAGLASNOST)
+        '20.12.1985': datum_rod_str,
+        # Procenat udjela
+        '100 %': f"{req.osnivac_procenat:g} %",
+        '100%': f"{req.osnivac_procenat:g}%",
+        
+        # === Telefon (cijela poruka u statutu: "+382 69508359") ===
+        '+382 69508359': tel_full,
+        '69508359': tel_no_prefix,
+        # Ne briši "+382" prefiks
+        
+        # === Email ===
+        'advanced.acct@hotmail.com': req.firma_email or "____________",
+        
+        # === Djelatnost ===
+        '47.11\tNespecijalizovana trgovina na malo pretežno hranom, pićima I duvanskim proizvodima': f"{req.firma_sifra_djelatnosti}\t{req.firma_naziv_djelatnosti}",
+        '47.11': req.firma_sifra_djelatnosti,
+        'Nespecijalizovana trgovina na malo pretežno hranom, pićima I duvanskim proizvodima': req.firma_naziv_djelatnosti,
+        
+        # === Datum statuta header ===
+        'Ulcinj, MAJ  2026': f"Ulcinj, {mjesec_name} {godina_int}",
+        'Ulcinj, MAJ 2026': f"Ulcinj, {mjesec_name} {godina_int}",
+        'MAJ  2026': f"{mjesec_name} {godina_int}",
+        'MAJ 2026': f"{mjesec_name} {godina_int}",
+        'MAJ': mjesec_name,
+        '2026': str(godina_int),
+        
+        # === Datum odluke ===
+        '12.05.2026': datum_str,
+        'dana 12.05.2026': f"dana {datum_str}",
+        
+        # === Osnovni kapital ===
+        '1,00 EUR': f"{req.osnovni_kapital:.2f} EUR".replace('.', ','),
+        
+        # === Grad ===
+        'U ULCINJ': f"U {req.firma_grad}",
+        'U Ulcinju': f"U {req.firma_grad}",
+        
+        # === Naziv pečata/skraćeni (ELA&ART) — bitno zadnje da ne dira pun naziv ===
+        '" ELA&ART "': f'" {pecat} "',
+        '"ELA&ART"': f'"{pecat}"',
+        ' ELA&ART ': f' {pecat} ',
+        'ELA&ART': pecat,
+    }
+    
+    # Ako se direktor razlikuje od osnivača, dodaj specifične zamjene
+    # (Ovo nije potpuno: tek nakon prve generacije korisnik može testirati i mi proširimo)
+    
+    return repl
+
+
+@api_router.post("/founding/generate")
+async def generate_founding(req: FoundingRequest, username: str = Depends(get_current_user)):
+    """Generiše 4 dokumenta za osnivanje DOO firme (Odluka, Imenovanje, Saglasnost, Statut)."""
+    templates_map = [
+        ("Odluka o osnivanju DOO.docx", "odluka_o_osnivanju"),
+        ("ODLUKA O IMENOVANJE DIREKTORA.docx", "imenovanje_direktora"),
+        ("SAGLASNOST SA IMENOVANJEM.docx", "saglasnost_imenovanjem"),
+        ("statut 2026.docx", "statut"),
+    ]
+    
+    replacements = _build_founding_replacements(req)
+    short_name = re.sub(r'[^\w\s-]', '', req.firma_naziv_skraceni)[:25].strip().replace(' ', '_')
+    output_files = []
+    
+    for tpl_filename, slug in templates_map:
+        tpl_path = TEMPLATES_DIR / tpl_filename
+        if not tpl_path.exists():
+            continue
+        
+        doc = Document(str(tpl_path))
+        _docx_replace(doc, replacements)
+        _remove_yellow_highlights(doc)
+        
+        output_filename = f"{uuid.uuid4().hex[:8]}_{slug}_{short_name}.docx"
+        output_filename = re.sub(r'[^\w\s.-]', '_', output_filename).replace(' ', '_')
+        output_path = GENERATED_DIR / output_filename
+        doc.save(str(output_path))
+        
+        # Konvertuj u PDF
+        pdf_filename = output_filename.replace('.docx', '.pdf')
+        _convert_to_pdf(output_path)
+        
+        # Snimi u history
+        record = {
+            "id": str(uuid.uuid4()),
+            "filename": output_filename,
+            "pdf_filename": pdf_filename,
+            "template": tpl_filename,
+            "template_filename": tpl_filename,
+            "company_id": "osnivanje",  # virtual company ID for founding docs
+            "company_naziv": req.firma_naziv_pun,
+            "employee_id": None,
+            "employee_naziv": req.osnivac_ime_prezime,
+            "custom_fields": req.model_dump(),
+            "created_at": datetime.now(timezone.utc).isoformat(),
+            "created_by": username,
+            "kategorija": "Osnivanje DOO",
+        }
+        await db.generated_documents.insert_one(dict(record))
+        
+        output_files.append({
+            "label": tpl_filename.replace('.docx', ''),
+            "slug": slug,
+            "filename": output_filename,
+            "pdf_filename": pdf_filename,
+            "download_url": f"/api/documents/download/{output_filename}",
+            "preview_url": f"/api/documents/preview/{pdf_filename}",
+        })
+    
+    return {
+        "success": True,
+        "firma_naziv": req.firma_naziv_pun,
+        "files": output_files,
     }
 
 

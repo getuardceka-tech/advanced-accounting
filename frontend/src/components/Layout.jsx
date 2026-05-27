@@ -10,12 +10,14 @@ import {
   MagnifyingGlass,
   Bell,
   Users,
+  Plus,
 } from "@phosphor-icons/react";
 import api, { clearToken } from "@/lib/api";
 
 const NAV = [
   { to: "/", label: "Pregled", icon: House, end: true },
   { to: "/firme", label: "Firme", icon: Buildings },
+  { to: "/osnivanje", label: "Osnivanje DOO", icon: Plus },
   { to: "/fizicka-lica", label: "Fizička lica", icon: Users },
   { to: "/dokumenti", label: "Dokumenti", icon: FileText },
   { to: "/pdv-ioppd", label: "PDV / IOPPD", icon: ListChecks },
