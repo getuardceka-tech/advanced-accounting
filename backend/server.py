@@ -2805,6 +2805,10 @@ def _build_founding_replacements(req: 'FoundingRequest') -> Dict[str, str]:
         '12.05.2026': datum_str,
         'dana 12.05.2026': f"dana {datum_str}",
         
+        # === Član 10.1 Odluke o osnivanju — "propisi Crne Gore" → "propisi Republike Crne Gore" ===
+        'pozitivni zakonski propisi Crne Gore': 'pozitivni zakonski propisi Republike Crne Gore',
+        'zakonski propisi Crne Gore': 'zakonski propisi Republike Crne Gore',
+        
         # === Osnovni kapital ===
         '1,00 EUR': f"{req.osnovni_kapital:.2f} EUR".replace('.', ','),
         
