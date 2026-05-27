@@ -203,6 +203,35 @@ class AneksRequest(BaseModel):
     update_employee: bool = True  # ažurirati i polja zaposlenog u bazi
 
 
+# ============================================================================
+# EVIDENCIJA RADA (Work Log) — integrisana evidencija svih radnih aktivnosti
+# za svaku firmu po kategorijama.
+# ============================================================================
+
+WORK_KATEGORIJE = ["osnivanje", "pdv", "ioppd", "m4", "stvarni_vlasnici", "ostalo"]
+WORK_STATUSI = ["u_toku", "poslato", "zavrseno"]
+
+
+class WorkLogCreate(BaseModel):
+    company_id: Optional[str] = None  # može biti "" za osnivanje firme prije nego što je u bazi
+    company_naziv: str = ""  # ime firme (za prikaz, naročito za osnivanje)
+    kategorija: str  # osnivanje / pdv / ioppd / m4 / stvarni_vlasnici / ostalo
+    status: str = "u_toku"  # u_toku / poslato / zavrseno
+    period: str = ""  # npr. "Maj 2026" ili "Q1 2026"
+    napomena: str = ""
+    iznos: Optional[float] = None  # opciono — npr. iznos PDV-a
+
+
+class WorkLogUpdate(BaseModel):
+    company_id: Optional[str] = None
+    company_naziv: Optional[str] = None
+    kategorija: Optional[str] = None
+    status: Optional[str] = None
+    period: Optional[str] = None
+    napomena: Optional[str] = None
+    iznos: Optional[float] = None
+
+
 class FoundingRequest(BaseModel):
     """Podaci za generisanje 4 dokumenta osnivanja DOO firme."""
     # Osnivač
@@ -2855,6 +2884,161 @@ async def search_sifre(q: Optional[str] = None, limit: int = 50, username: str =
     return out[:limit]
 
 
+# ============================================================================
+# WORK LOG API — evidencija rada po firmama i kategorijama
+# ============================================================================
+
+@api_router.get("/work-logs")
+async def list_work_logs(
+    company_id: Optional[str] = None,
+    kategorija: Optional[str] = None,
+    status: Optional[str] = None,
+    q: Optional[str] = None,
+    limit: int = 200,
+    username: str = Depends(get_current_user),
+):
+    """Lista evidencije rada — filteri: firma, kategorija, status, slobodna pretraga."""
+    query: Dict = {}
+    if company_id:
+        query["company_id"] = company_id
+    if kategorija:
+        query["kategorija"] = kategorija
+    if status:
+        query["status"] = status
+    if q:
+        q_str = q.strip()
+        query["$or"] = [
+            {"company_naziv": {"$regex": q_str, "$options": "i"}},
+            {"napomena": {"$regex": q_str, "$options": "i"}},
+            {"period": {"$regex": q_str, "$options": "i"}},
+        ]
+    
+    items = await db.work_logs.find(query, {"_id": 0}).sort("created_at", -1).to_list(limit)
+    return items
+
+
+@api_router.post("/work-logs")
+async def create_work_log(req: WorkLogCreate, username: str = Depends(get_current_user)):
+    """Kreiraj novu stavku evidencije."""
+    if req.kategorija not in WORK_KATEGORIJE:
+        raise HTTPException(400, f"Nepoznata kategorija. Dozvoljene: {', '.join(WORK_KATEGORIJE)}")
+    if req.status not in WORK_STATUSI:
+        raise HTTPException(400, f"Nepoznat status. Dozvoljene: {', '.join(WORK_STATUSI)}")
+    
+    # Ako je company_id dat ali bez naziva — auto-fetch
+    naziv = req.company_naziv
+    if req.company_id and not naziv:
+        c = await db.companies.find_one({"id": req.company_id}, {"_id": 0, "naziv": 1})
+        if c:
+            naziv = c.get("naziv", "")
+    
+    log = {
+        "id": str(uuid.uuid4()),
+        "company_id": req.company_id or "",
+        "company_naziv": naziv,
+        "kategorija": req.kategorija,
+        "status": req.status,
+        "period": req.period or "",
+        "napomena": req.napomena or "",
+        "iznos": req.iznos,
+        "created_at": datetime.now(timezone.utc).isoformat(),
+        "updated_at": datetime.now(timezone.utc).isoformat(),
+        "created_by": username,
+        "completed_at": datetime.now(timezone.utc).isoformat() if req.status == "zavrseno" else None,
+    }
+    await db.work_logs.insert_one(dict(log))
+    return log
+
+
+@api_router.patch("/work-logs/{log_id}")
+async def update_work_log(log_id: str, req: WorkLogUpdate, username: str = Depends(get_current_user)):
+    """Ažuriraj stavku — najčešće status (u_toku → poslato → zavrseno)."""
+    existing = await db.work_logs.find_one({"id": log_id}, {"_id": 0})
+    if not existing:
+        raise HTTPException(404, "Evidencija nije pronađena")
+    
+    updates: Dict = {"updated_at": datetime.now(timezone.utc).isoformat()}
+    for field in ["company_id", "company_naziv", "kategorija", "status", "period", "napomena", "iznos"]:
+        v = getattr(req, field, None)
+        if v is not None:
+            updates[field] = v
+    
+    # Auto-postavi completed_at kad pređe u završeno
+    if req.status == "zavrseno" and existing.get("status") != "zavrseno":
+        updates["completed_at"] = datetime.now(timezone.utc).isoformat()
+    elif req.status and req.status != "zavrseno":
+        updates["completed_at"] = None
+    
+    await db.work_logs.update_one({"id": log_id}, {"$set": updates})
+    out = await db.work_logs.find_one({"id": log_id}, {"_id": 0})
+    return out
+
+
+@api_router.delete("/work-logs/{log_id}")
+async def delete_work_log(log_id: str, username: str = Depends(get_current_user)):
+    r = await db.work_logs.delete_one({"id": log_id})
+    if r.deleted_count == 0:
+        raise HTTPException(404, "Evidencija nije pronađena")
+    return {"success": True}
+
+
+@api_router.get("/work-logs/stats")
+async def work_logs_stats(username: str = Depends(get_current_user)):
+    """Brojač po kategoriji i statusu za dashboard."""
+    pipeline = [
+        {"$group": {"_id": {"kategorija": "$kategorija", "status": "$status"}, "count": {"$sum": 1}}}
+    ]
+    raw = await db.work_logs.aggregate(pipeline).to_list(200)
+    out: Dict = {}
+    for item in raw:
+        k = item["_id"]["kategorija"]
+        s = item["_id"]["status"]
+        out.setdefault(k, {"u_toku": 0, "poslato": 0, "zavrseno": 0, "total": 0})
+        out[k][s] = item["count"]
+        out[k]["total"] += item["count"]
+    return out
+
+
+# ============================================================================
+# FOUNDING TEMPLATES — sačuvani šabloni osnivanja firmi (za ponovno korištenje)
+# ============================================================================
+
+@api_router.get("/founding/templates")
+async def list_founding_templates(username: str = Depends(get_current_user)):
+    """Lista sačuvanih šablona za osnivanje firmi."""
+    items = await db.founding_templates.find({}, {"_id": 0}).sort("updated_at", -1).to_list(200)
+    return items
+
+
+@api_router.post("/founding/templates")
+async def save_founding_template(payload: Dict[str, Any], username: str = Depends(get_current_user)):
+    """Sačuvaj podatke o osnivanju kao šablon za ponovno korištenje."""
+    name = payload.get("template_name", "").strip()
+    if not name:
+        raise HTTPException(400, "Naziv šablona je obavezan")
+    
+    data = payload.get("data", {})
+    
+    record = {
+        "id": str(uuid.uuid4()),
+        "template_name": name,
+        "data": data,  # cijeli FoundingRequest payload
+        "created_at": datetime.now(timezone.utc).isoformat(),
+        "updated_at": datetime.now(timezone.utc).isoformat(),
+        "created_by": username,
+    }
+    await db.founding_templates.insert_one(dict(record))
+    return record
+
+
+@api_router.delete("/founding/templates/{tpl_id}")
+async def delete_founding_template(tpl_id: str, username: str = Depends(get_current_user)):
+    r = await db.founding_templates.delete_one({"id": tpl_id})
+    if r.deleted_count == 0:
+        raise HTTPException(404, "Šablon nije pronađen")
+    return {"success": True}
+
+
 
 @api_router.post("/founding/generate")
 async def generate_founding(req: FoundingRequest, username: str = Depends(get_current_user)):
@@ -2915,10 +3099,28 @@ async def generate_founding(req: FoundingRequest, username: str = Depends(get_cu
             "preview_url": f"/api/documents/preview/{pdf_filename}",
         })
     
+    # Auto-kreiraj WorkLog entry za "Osnivanje DOO"
+    work_log = {
+        "id": str(uuid.uuid4()),
+        "company_id": "",  # firma još nije osnovana
+        "company_naziv": req.firma_naziv_pun,
+        "kategorija": "osnivanje",
+        "status": "u_toku",
+        "period": "",
+        "napomena": f"Osnivač: {req.osnivac_ime_prezime}, generisano 4 dokumenta",
+        "iznos": None,
+        "created_at": datetime.now(timezone.utc).isoformat(),
+        "updated_at": datetime.now(timezone.utc).isoformat(),
+        "created_by": username,
+        "completed_at": None,
+    }
+    await db.work_logs.insert_one(dict(work_log))
+    
     return {
         "success": True,
         "firma_naziv": req.firma_naziv_pun,
         "files": output_files,
+        "work_log_id": work_log["id"],
     }
 
 

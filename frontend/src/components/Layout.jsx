@@ -57,7 +57,7 @@ export default function Layout() {
           {NAV.map((item) => {
             const Icon = item.icon;
             const isFirme = item.to === "/firme";
-            const showSub = isFirme && (location.pathname.startsWith("/firme") || location.pathname.startsWith("/osnivanje"));
+            const showSub = isFirme && (location.pathname.startsWith("/firme") || location.pathname.startsWith("/osnivanje") || location.pathname.startsWith("/evidencija-rada"));
             return (
               <div key={item.to}>
                 <NavLink
@@ -70,15 +70,26 @@ export default function Layout() {
                   <span>{item.label}</span>
                 </NavLink>
                 {showSub && (
-                  <NavLink
-                    to="/osnivanje"
-                    className={({ isActive }) => `sidebar-link ${isActive ? "active" : ""}`}
-                    data-testid="nav-osnivanje-doo"
-                    style={{ marginLeft: 24, fontSize: 13, paddingTop: 6, paddingBottom: 6 }}
-                  >
-                    <Plus size={14} />
-                    <span>Osnivanje DOO</span>
-                  </NavLink>
+                  <>
+                    <NavLink
+                      to="/osnivanje"
+                      className={({ isActive }) => `sidebar-link ${isActive ? "active" : ""}`}
+                      data-testid="nav-osnivanje-doo"
+                      style={{ marginLeft: 24, fontSize: 13, paddingTop: 6, paddingBottom: 6 }}
+                    >
+                      <Plus size={14} />
+                      <span>Osnivanje DOO</span>
+                    </NavLink>
+                    <NavLink
+                      to="/evidencija-rada"
+                      className={({ isActive }) => `sidebar-link ${isActive ? "active" : ""}`}
+                      data-testid="nav-evidencija-rada"
+                      style={{ marginLeft: 24, fontSize: 13, paddingTop: 6, paddingBottom: 6 }}
+                    >
+                      <ListChecks size={14} />
+                      <span>Evidencija rada</span>
+                    </NavLink>
+                  </>
                 )}
               </div>
             );

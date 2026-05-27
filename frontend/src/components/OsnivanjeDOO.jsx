@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react";
-import { Plus, Spinner, Printer, FileText, Download, CheckCircle, MagnifyingGlass } from "@phosphor-icons/react";
+import { Plus, Spinner, Printer, FileText, Download, CheckCircle, MagnifyingGlass, Check, X } from "@phosphor-icons/react";
 import api from "@/lib/api";
 
 const initial = {
@@ -51,6 +51,37 @@ export default function OsnivanjeDOO() {
   const [busy, setBusy] = useState(false);
   const [result, setResult] = useState(null);
   const [error, setError] = useState("");
+  const [templates, setTemplates] = useState([]);
+  const [showSaveTpl, setShowSaveTpl] = useState(false);
+  const [tplName, setTplName] = useState("");
+  
+  useEffect(() => {
+    api.get("/founding/templates").then((r) => setTemplates(r.data || [])).catch(() => {});
+  }, []);
+  
+  const loadTemplate = (tpl) => {
+    setForm({ ...initial, ...tpl.data });
+    setResult(null);
+  };
+  
+  const saveAsTemplate = async () => {
+    if (!tplName.trim()) return;
+    try {
+      const r = await api.post("/founding/templates", { template_name: tplName.trim(), data: form });
+      setTemplates([r.data, ...templates]);
+      setShowSaveTpl(false);
+      setTplName("");
+      alert(`Šablon "${r.data.template_name}" sačuvan! Možete ga ponovo koristiti za drugu firmu.`);
+    } catch (e) {
+      alert(`Greška: ${e.response?.data?.detail || e.message}`);
+    }
+  };
+  
+  const deleteTemplate = async (id, name) => {
+    if (!confirm(`Obrisati šablon "${name}"?`)) return;
+    await api.delete(`/founding/templates/${id}`);
+    setTemplates(templates.filter((t) => t.id !== id));
+  };
   
   const u = (k, v) => setForm({ ...form, [k]: v });
   
@@ -109,6 +140,59 @@ export default function OsnivanjeDOO() {
       </div>
       
       <div style={{ maxWidth: 900, margin: "0 auto" }}>
+        {/* === ŠABLONI === */}
+        <div style={{ marginBottom: 20, background: "white", border: "1px solid var(--border)", borderRadius: 12, padding: 16, display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 13, fontWeight: 600, color: "var(--text-secondary)" }}>
+            <Download size={15} />
+            Sačuvani šabloni:
+          </div>
+          {templates.length === 0 && (
+            <div style={{ fontSize: 12.5, color: "var(--text-tertiary)" }}>
+              Nema sačuvanih šablona. Popuni formu i klikni "Sačuvaj kao šablon".
+            </div>
+          )}
+          {templates.map((t) => (
+            <div key={t.id} style={{ display: "inline-flex", alignItems: "center", gap: 4, background: "#eff6ff", color: "#1e40af", padding: "4px 4px 4px 10px", borderRadius: 999, fontSize: 12.5, border: "1px solid #93c5fd" }}>
+              <button onClick={() => loadTemplate(t)} style={{ background: "none", border: "none", color: "inherit", cursor: "pointer", padding: 0, fontSize: 12.5, fontWeight: 500 }} data-testid={`load-tpl-${t.id}`}>
+                {t.template_name}
+              </button>
+              <button onClick={() => deleteTemplate(t.id, t.template_name)} style={{ background: "none", border: "none", color: "#dc2626", cursor: "pointer", padding: 2, marginLeft: 2 }} title="Obriši šablon">
+                ×
+              </button>
+            </div>
+          ))}
+          <div style={{ marginLeft: "auto" }}>
+            {!showSaveTpl ? (
+              <button 
+                className="btn btn-secondary" 
+                onClick={() => setShowSaveTpl(true)} 
+                style={{ fontSize: 12.5, padding: "5px 12px" }}
+                data-testid="save-as-tpl-btn"
+              >
+                <Plus size={12} /> Sačuvaj kao šablon
+              </button>
+            ) : (
+              <div style={{ display: "inline-flex", gap: 6, alignItems: "center" }}>
+                <input
+                  className="input"
+                  placeholder="Naziv šablona (npr. ELA&ART)"
+                  value={tplName}
+                  onChange={(e) => setTplName(e.target.value)}
+                  autoFocus
+                  data-testid="tpl-name-input"
+                  style={{ height: 30, padding: "4px 8px", fontSize: 12.5, minWidth: 200 }}
+                />
+                <button onClick={saveAsTemplate} className="btn btn-primary" style={{ padding: "5px 10px", fontSize: 12 }} data-testid="confirm-save-tpl">
+                  <Check size={12} />
+                </button>
+                <button onClick={() => { setShowSaveTpl(false); setTplName(""); }} className="btn btn-secondary" style={{ padding: "5px 8px" }}>
+                  <X size={12} />
+                </button>
+              </div>
+            )}
+          </div>
+        </div>
+        
         {/* === OSNIVAČ === */}
         <Section icon={Plus} title="1. Osnivač firme" color="#3b82f6">
           <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 14 }}>
