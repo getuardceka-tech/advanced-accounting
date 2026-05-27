@@ -1,5 +1,5 @@
-import { useState } from "react";
-import { Plus, Spinner, Printer, FileText, Download, CheckCircle } from "@phosphor-icons/react";
+import { useState, useEffect } from "react";
+import { Plus, Spinner, Printer, FileText, Download, CheckCircle, MagnifyingGlass } from "@phosphor-icons/react";
 import api from "@/lib/api";
 
 const initial = {
@@ -37,6 +37,7 @@ const initial = {
   // Datumi
   datum_odluke: new Date().toISOString().slice(0, 10),
   osnovni_kapital: 1.0,
+  direktor_pol: "M",  // M = muško (saglasan), Z = žensko (saglasna)
 };
 
 export default function OsnivanjeDOO() {
@@ -101,8 +102,8 @@ export default function OsnivanjeDOO() {
         {/* === OSNIVAČ === */}
         <Section icon={Plus} title="1. Osnivač firme" color="#3b82f6">
           <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 14 }}>
-            <Field label="Ime i prezime osnivača *" value={form.osnivac_ime_prezime} onChange={(v) => u("osnivac_ime_prezime", v.toUpperCase())} testid="osn-ime" placeholder="ARJANA CEKOVIQ" />
-            <Field label="Adresa prebivališta *" value={form.osnivac_adresa} onChange={(v) => u("osnivac_adresa", v)} testid="osn-adresa" placeholder="BRAJŠE BB, ULCINJ" />
+            <Field label="Ime i prezime osnivača *" value={form.osnivac_ime_prezime} onChange={(v) => u("osnivac_ime_prezime", v.toUpperCase())} testid="osn-ime" placeholder="Ime i prezime" />
+            <Field label="Adresa prebivališta *" value={form.osnivac_adresa} onChange={(v) => u("osnivac_adresa", v)} testid="osn-adresa" placeholder="Ulica, broj, grad" />
             
             <div className="field-group" style={{ gridColumn: "1/-1", padding: 12, background: form.osnivac_is_stranac ? "#fef3c7" : "#f0fdf4", borderRadius: 8, border: `1px solid ${form.osnivac_is_stranac ? "#fbbf24" : "#86efac"}` }}>
               <label style={{ display: "flex", alignItems: "center", gap: 10, cursor: "pointer", fontSize: 13.5, fontWeight: 500 }}>
@@ -119,12 +120,12 @@ export default function OsnivanjeDOO() {
             
             {form.osnivac_is_stranac ? (
               <>
-                <Field label="Broj pasoša *" value={form.osnivac_pasos} onChange={(v) => u("osnivac_pasos", v)} testid="osn-pasos" placeholder="P12345678" />
-                <Field label="Država porijekla" value={form.osnivac_drzava} onChange={(v) => u("osnivac_drzava", v)} placeholder="Albanije" />
+                <Field label="Broj pasoša *" value={form.osnivac_pasos} onChange={(v) => u("osnivac_pasos", v)} testid="osn-pasos" placeholder="Broj pasoša" />
+                <Field label="Država porijekla" value={form.osnivac_drzava} onChange={(v) => u("osnivac_drzava", v)} placeholder="Albanije, Italije..." />
               </>
             ) : (
               <>
-                <Field label="JMBG *" value={form.osnivac_jmb} onChange={(v) => u("osnivac_jmb", v)} testid="osn-jmb" placeholder="2012985225015" />
+                <Field label="JMBG *" value={form.osnivac_jmb} onChange={(v) => u("osnivac_jmb", v)} testid="osn-jmb" placeholder="13-cifreni JMBG" />
                 <Field label="Država" value={form.osnivac_drzava} onChange={(v) => u("osnivac_drzava", v)} placeholder="Crne Gore" />
               </>
             )}
@@ -143,7 +144,7 @@ export default function OsnivanjeDOO() {
                 value={form.firma_naziv_pun} 
                 onChange={(v) => u("firma_naziv_pun", v.toUpperCase())}
                 testid="firma-naziv-pun"
-                placeholder='DRUŠTVO SA OGRANIČENOM ODGOVORNOŠĆU ZA TRGOVINU "MARKO TRADE" ULCINJ'
+                placeholder='Pun naziv firme'
               />
             </div>
             <Field 
@@ -151,14 +152,14 @@ export default function OsnivanjeDOO() {
               value={form.firma_naziv_skraceni} 
               onChange={(v) => u("firma_naziv_skraceni", v.toUpperCase())}
               testid="firma-naziv-skraceni"
-              placeholder='DOO "MARKO TRADE" ULCINJ'
+              placeholder='Skraćeni naziv'
             />
             <Field 
               label='Naziv na pečatu (bez DOO)' 
               value={form.firma_naziv_pecat} 
               onChange={(v) => u("firma_naziv_pecat", v.toUpperCase())}
               testid="firma-pecat"
-              placeholder="MARKO TRADE"
+              placeholder="Naziv koji ide u pečat"
             />
             <div className="field-group" style={{ gridColumn: "1/-1" }}>
               <label className="field-label">Vrsta djelatnosti (opis u nazivu)</label>
@@ -180,15 +181,17 @@ export default function OsnivanjeDOO() {
                 Dio koji ide u pun naziv: "DRUŠTVO SA OGRANIČENOM ODGOVORNOŠĆU [ovaj dio] [pečat] ULCINJ"
               </div>
             </div>
-            <Field label="Sjedište - puna adresa *" value={form.firma_sjediste_adresa} onChange={(v) => u("firma_sjediste_adresa", v.toUpperCase())} testid="firma-sjediste" placeholder="ULICA SLOBODE BR. 15, ULCINJ" />
+            <Field label="Sjedište - puna adresa *" value={form.firma_sjediste_adresa} onChange={(v) => u("firma_sjediste_adresa", v.toUpperCase())} testid="firma-sjediste" placeholder="Ulica, broj, grad" />
             <Field label="Grad" value={form.firma_grad} onChange={(v) => u("firma_grad", v.toUpperCase())} placeholder="ULCINJ" />
-            <Field label="Telefon" value={form.firma_telefon} onChange={(v) => u("firma_telefon", v)} testid="firma-tel" placeholder="+382 69123456" />
-            <Field label="Email" value={form.firma_email} onChange={(v) => u("firma_email", v)} testid="firma-email" placeholder="info@firma.me" />
-            <Field label="Šifra pretežne djelatnosti" value={form.firma_sifra_djelatnosti} onChange={(v) => u("firma_sifra_djelatnosti", v)} placeholder="47.11" />
-            <Field label="Osnovni kapital (€)" value={form.osnovni_kapital} onChange={(v) => u("osnovni_kapital", v)} type="number" />
+            <Field label="Telefon" value={form.firma_telefon} onChange={(v) => u("firma_telefon", v)} testid="firma-tel" placeholder="+382 ..." />
+            <Field label="Email" value={form.firma_email} onChange={(v) => u("firma_email", v)} testid="firma-email" placeholder="info@..." />
             <div style={{ gridColumn: "1/-1" }}>
-              <Field label="Naziv pretežne djelatnosti" value={form.firma_naziv_djelatnosti} onChange={(v) => u("firma_naziv_djelatnosti", v)} placeholder="Trgovina na malo..." />
+              <SifraDjelatnostiSearch
+                value={{ sifra: form.firma_sifra_djelatnosti, naziv: form.firma_naziv_djelatnosti }}
+                onChange={(s) => setForm({ ...form, firma_sifra_djelatnosti: s.sifra, firma_naziv_djelatnosti: s.naziv })}
+              />
             </div>
+            <Field label="Osnovni kapital (€)" value={form.osnovni_kapital} onChange={(v) => u("osnovni_kapital", v)} type="number" />
             <Field label="Datum odluke o osnivanju" value={form.datum_odluke} onChange={(v) => u("datum_odluke", v)} type="date" />
           </div>
         </Section>
@@ -206,6 +209,32 @@ export default function OsnivanjeDOO() {
               />
               ✅ Direktor je isto lice kao osnivač (najčešći slučaj)
             </label>
+          </div>
+          
+          <div className="field-group" style={{ marginBottom: 14, padding: 12, background: "#eff6ff", borderRadius: 8, border: "1px solid #93c5fd" }}>
+            <label className="field-label" style={{ marginBottom: 8 }}>Pol direktora (za saglasnost: saglasan / saglasna)</label>
+            <div style={{ display: "flex", gap: 14 }}>
+              <label style={{ display: "flex", alignItems: "center", gap: 6, cursor: "pointer", fontSize: 13.5 }}>
+                <input
+                  type="radio"
+                  name="direktor_pol"
+                  checked={form.direktor_pol === "M"}
+                  onChange={() => u("direktor_pol", "M")}
+                  data-testid="dir-pol-m"
+                />
+                Muški (rodjen, saglasan)
+              </label>
+              <label style={{ display: "flex", alignItems: "center", gap: 6, cursor: "pointer", fontSize: 13.5 }}>
+                <input
+                  type="radio"
+                  name="direktor_pol"
+                  checked={form.direktor_pol === "Z"}
+                  onChange={() => u("direktor_pol", "Z")}
+                  data-testid="dir-pol-z"
+                />
+                Ženski (rodjena, saglasna)
+              </label>
+            </div>
           </div>
           
           {!form.direktor_isti_kao_osnivac && (
@@ -316,3 +345,103 @@ const Field = ({ label, value, onChange, testid, type = "text", placeholder }) =
     />
   </div>
 );
+
+function SifraDjelatnostiSearch({ value, onChange }) {
+  const [query, setQuery] = useState("");
+  const [results, setResults] = useState([]);
+  const [open, setOpen] = useState(false);
+  const [loading, setLoading] = useState(false);
+  
+  useEffect(() => {
+    if (!open) return;
+    const t = setTimeout(async () => {
+      setLoading(true);
+      try {
+        const r = await api.get("/sifre-djelatnosti", { params: { q: query, limit: 80 } });
+        setResults(r.data);
+      } catch {
+        setResults([]);
+      } finally {
+        setLoading(false);
+      }
+    }, 200);
+    return () => clearTimeout(t);
+  }, [query, open]);
+  
+  const pick = (s) => {
+    onChange(s);
+    setOpen(false);
+    setQuery("");
+  };
+  
+  return (
+    <div className="field-group" style={{ position: "relative" }}>
+      <label className="field-label">Pretežna djelatnost firme *</label>
+      <div
+        className="input"
+        style={{ cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "space-between", minHeight: 40, padding: "8px 10px" }}
+        onClick={() => setOpen(!open)}
+        data-testid="sifra-djelatnosti-trigger"
+      >
+        {value.sifra ? (
+          <div style={{ fontSize: 13 }}>
+            <strong style={{ color: "var(--accent)", marginRight: 8 }}>{value.sifra}</strong>
+            <span>{value.naziv}</span>
+          </div>
+        ) : (
+          <span style={{ color: "var(--text-tertiary)" }}>Klikni za pretragu šifri djelatnosti...</span>
+        )}
+        <MagnifyingGlass size={15} color="var(--text-tertiary)" />
+      </div>
+      <div style={{ fontSize: 11, color: "var(--text-tertiary)", marginTop: 4 }}>
+        Šifra ide u Statut i Odluku o osnivanju kao pretežna djelatnost.
+      </div>
+      
+      {open && (
+        <div style={{
+          position: "absolute", top: "calc(100% + 4px)", left: 0, right: 0,
+          background: "white", border: "1px solid var(--border)", borderRadius: 8,
+          boxShadow: "0 8px 24px rgba(0,0,0,0.12)", zIndex: 100, maxHeight: 380, overflow: "auto"
+        }}>
+          <div style={{ padding: 10, borderBottom: "1px solid var(--border-light)", background: "#f8fafc", position: "sticky", top: 0 }}>
+            <input
+              className="input"
+              autoFocus
+              type="text"
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+              placeholder="Pretraži (npr: trgovina, gradj, ugost...)"
+              data-testid="sifra-djelatnosti-search"
+            />
+          </div>
+          {loading && <div style={{ padding: 14, textAlign: "center", color: "var(--text-tertiary)" }}>Učitavam...</div>}
+          {!loading && results.length === 0 && (
+            <div style={{ padding: 14, textAlign: "center", color: "var(--text-tertiary)", fontSize: 13 }}>
+              Nema rezultata za "{query}"
+            </div>
+          )}
+          {!loading && results.map((s) => (
+            <div
+              key={s.sifra}
+              onClick={() => pick(s)}
+              data-testid={`sifra-opt-${s.sifra}`}
+              style={{
+                padding: "10px 12px", borderBottom: "1px solid var(--border-light)",
+                cursor: "pointer", display: "flex", gap: 10, alignItems: "flex-start",
+                fontSize: 13
+              }}
+              onMouseEnter={(e) => e.currentTarget.style.background = "#f8fafc"}
+              onMouseLeave={(e) => e.currentTarget.style.background = "white"}
+            >
+              <div style={{
+                fontWeight: 600, color: "var(--accent)", fontFamily: "JetBrains Mono, monospace",
+                fontSize: 12.5, minWidth: 50
+              }}>{s.sifra}</div>
+              <div style={{ flex: 1 }}>{s.naziv}</div>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}

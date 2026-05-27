@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { Outlet, NavLink, useNavigate } from "react-router-dom";
+import { Outlet, NavLink, useNavigate, useLocation } from "react-router-dom";
 import {
   House,
   Buildings,
@@ -17,7 +17,6 @@ import api, { clearToken } from "@/lib/api";
 const NAV = [
   { to: "/", label: "Pregled", icon: House, end: true },
   { to: "/firme", label: "Firme", icon: Buildings },
-  { to: "/osnivanje", label: "Osnivanje DOO", icon: Plus },
   { to: "/fizicka-lica", label: "Fizička lica", icon: Users },
   { to: "/dokumenti", label: "Dokumenti", icon: FileText },
   { to: "/pdv-ioppd", label: "PDV / IOPPD", icon: ListChecks },
@@ -25,6 +24,7 @@ const NAV = [
 
 export default function Layout() {
   const navigate = useNavigate();
+  const location = useLocation();
   const [agency, setAgency] = useState(null);
 
   useEffect(() => {
@@ -56,17 +56,31 @@ export default function Layout() {
         <nav style={{ display: "flex", flexDirection: "column", gap: 2 }}>
           {NAV.map((item) => {
             const Icon = item.icon;
+            const isFirme = item.to === "/firme";
+            const showSub = isFirme && (location.pathname.startsWith("/firme") || location.pathname.startsWith("/osnivanje"));
             return (
-              <NavLink
-                key={item.to}
-                to={item.to}
-                end={item.end}
-                className={({ isActive }) => `sidebar-link ${isActive ? "active" : ""}`}
-                data-testid={`nav-${item.to.replace("/", "") || "dashboard"}`}
-              >
-                <Icon size={17} weight="regular" />
-                <span>{item.label}</span>
-              </NavLink>
+              <div key={item.to}>
+                <NavLink
+                  to={item.to}
+                  end={item.end}
+                  className={({ isActive }) => `sidebar-link ${isActive ? "active" : ""}`}
+                  data-testid={`nav-${item.to.replace("/", "") || "dashboard"}`}
+                >
+                  <Icon size={17} weight="regular" />
+                  <span>{item.label}</span>
+                </NavLink>
+                {showSub && (
+                  <NavLink
+                    to="/osnivanje"
+                    className={({ isActive }) => `sidebar-link ${isActive ? "active" : ""}`}
+                    data-testid="nav-osnivanje-doo"
+                    style={{ marginLeft: 24, fontSize: 13, paddingTop: 6, paddingBottom: 6 }}
+                  >
+                    <Plus size={14} />
+                    <span>Osnivanje DOO</span>
+                  </NavLink>
+                )}
+              </div>
             );
           })}
         </nav>

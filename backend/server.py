@@ -235,6 +235,7 @@ class FoundingRequest(BaseModel):
     direktor_pasos: str = ""
     direktor_drzava: str = "Crne Gore"
     direktor_adresa: str = ""
+    direktor_pol: str = "M"  # "M" = muško, "Z" = žensko (utiče na "saglasan/saglasna", "rodjen/rodjena")
     
     # Datumi
     datum_odluke: str = ""  # default = today
@@ -2632,6 +2633,7 @@ def _build_founding_replacements(req: 'FoundingRequest') -> Dict[str, str]:
         direktor_jmb = osnivac_jmb_value
         direktor_drzava = req.osnivac_drzava
         direktor_adresa = req.osnivac_adresa
+        direktor_pol = req.direktor_pol  # uvijek se uzima iz direktor_pol polja
     else:
         direktor_ime = req.direktor_ime_prezime
         if req.direktor_is_stranac:
@@ -2640,6 +2642,13 @@ def _build_founding_replacements(req: 'FoundingRequest') -> Dict[str, str]:
             direktor_jmb = req.direktor_jmb or "____________"
         direktor_drzava = req.direktor_drzava
         direktor_adresa = req.direktor_adresa
+        direktor_pol = req.direktor_pol
+    
+    # Gramatika za pol direktora
+    is_zensko = (direktor_pol or "M").upper() == "Z"
+    saglasan_label = "SAGLASNA" if is_zensko else "SAGLASAN"
+    saglasan_lower = "saglasna" if is_zensko else "saglasan"
+    rodjen_lower = "rodjena" if is_zensko else "rodjen"
     
     # Datum rođenja (za saglasnost)
     if req.osnivac_datum_rodjenja:
@@ -2702,8 +2711,15 @@ def _build_founding_replacements(req: 'FoundingRequest') -> Dict[str, str]:
         'iz Crne Gore': f'iz {req.osnivac_drzava}',
         ' Crne Gore': f' {req.osnivac_drzava}',
         'Crne Gore': req.osnivac_drzava,
-        # Datum rođenja (samo u SAGLASNOST)
+        # === Datum rođenja (samo u SAGLASNOST) ===
         '20.12.1985': datum_rod_str,
+        # === Pol direktora u Saglasnosti (rodjena/rodjen, saglasna/saglasan) ===
+        'rodjena 20.12.1985': f'{rodjen_lower} {datum_rod_str}',
+        ', rodjena ': f', {rodjen_lower} ',
+        ' rodjena ': f' {rodjen_lower} ',
+        'saglasna sam': f'{saglasan_lower} sam',
+        ' saglasna ': f' {saglasan_lower} ',
+        'SAGLASNA': saglasan_label,
         # Procenat udjela
         '100 %': f"{req.osnivac_procenat:g} %",
         '100%': f"{req.osnivac_procenat:g}%",
@@ -2751,6 +2767,33 @@ def _build_founding_replacements(req: 'FoundingRequest') -> Dict[str, str]:
     # (Ovo nije potpuno: tek nakon prve generacije korisnik može testirati i mi proširimo)
     
     return repl
+
+
+# Load activity codes once at module level
+_SIFRE_DJELATNOSTI_CACHE = None
+
+def _load_sifre_djelatnosti():
+    global _SIFRE_DJELATNOSTI_CACHE
+    if _SIFRE_DJELATNOSTI_CACHE is None:
+        try:
+            import json
+            with open(ROOT_DIR / "data" / "sifre_djelatnosti.json", "r", encoding="utf-8") as f:
+                _SIFRE_DJELATNOSTI_CACHE = json.load(f)
+        except Exception:
+            _SIFRE_DJELATNOSTI_CACHE = []
+    return _SIFRE_DJELATNOSTI_CACHE
+
+
+@api_router.get("/sifre-djelatnosti")
+async def search_sifre(q: Optional[str] = None, limit: int = 50, username: str = Depends(get_current_user)):
+    """Pretraga šifri djelatnosti — vraća listu (šifra, naziv) koja sadrži upit."""
+    sifre = _load_sifre_djelatnosti()
+    if not q:
+        return sifre[:limit]
+    q_lower = q.lower().strip()
+    out = [s for s in sifre if q_lower in s["naziv"].lower() or q_lower in s["sifra"].lower()]
+    return out[:limit]
+
 
 
 @api_router.post("/founding/generate")
