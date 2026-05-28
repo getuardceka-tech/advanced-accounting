@@ -203,6 +203,27 @@ class AneksRequest(BaseModel):
     update_employee: bool = True  # ažurirati i polja zaposlenog u bazi
 
 
+class PunomoceRequest(BaseModel):
+    """Podaci za generisanje Specijalnog punomoćja za osnivanje firme."""
+    # Davalac punomoćja (osoba koja daje ovlaštenje)
+    davaoc_ime_prezime: str  # "ARJANA CEKOVIQ"
+    davaoc_is_stranac: bool = False
+    davaoc_jmb: str = ""  # ako domaći
+    davaoc_pasos: str = ""  # ako stranac
+    davaoc_drzava: str = "Crne Gore"
+    davaoc_adresa: str = ""
+    
+    # Firma koja se osniva
+    firma_naziv: str = ""
+    
+    # Punomoćnik (npr. računovođa)
+    punomocnik_ime_prezime: str = ""
+    punomocnik_jmb: str = ""
+    punomocnik_adresa: str = ""
+    
+    # Datum
+    datum: str = ""  # default = today
+
 # ============================================================================
 # EVIDENCIJA RADA (Work Log) — integrisana evidencija svih radnih aktivnosti
 # za svaku firmu po kategorijama.
@@ -3121,6 +3142,130 @@ async def generate_founding(req: FoundingRequest, username: str = Depends(get_cu
         "firma_naziv": req.firma_naziv_pun,
         "files": output_files,
         "work_log_id": work_log["id"],
+    }
+
+
+# ============================================================================
+# SPECIJALNO PUNOMOĆJE — generisanje dokumenta sa zamjenom žutih markera
+# ============================================================================
+
+def _build_punomoce_replacements(req: 'PunomoceRequest') -> Dict[str, str]:
+    """Mapiranja za Specijalno punomoćje."""
+    # Datum
+    if req.datum:
+        try:
+            dt = datetime.fromisoformat(req.datum.replace('Z', ''))
+            datum_str = dt.strftime("%d.%m.%Y")
+        except Exception:
+            datum_str = req.datum
+    else:
+        datum_str = datetime.now(timezone.utc).strftime("%d.%m.%Y")
+    
+    # Davalac - isprava (JMBG ili pasoš)
+    if req.davaoc_is_stranac:
+        davaoc_label = "Br. pasoša"
+        davaoc_id = req.davaoc_pasos or "____________"
+    else:
+        davaoc_label = "JMB"
+        davaoc_id = req.davaoc_jmb or "____________"
+    
+    # Generičke žute oznake — sve hardkodirane vrijednosti iz template-a
+    # Pošto template još nije dostavljen, koristimo SVE moguće formate placeholdera
+    repl = {
+        # Davalac (ko daje punomoćje)
+        'ARJANA CEKOVIQ': req.davaoc_ime_prezime,
+        '2012985225015': davaoc_id,
+        'JMB: 2012985225015': f"{davaoc_label}: {davaoc_id}",
+        'JMB:2012985225015': f"{davaoc_label}:{davaoc_id}",
+        'JMBG 2012985225015': f"{davaoc_label} {davaoc_id}",
+        'JMBG: 2012985225015': f"{davaoc_label}: {davaoc_id}",
+        # Adresa davaoca
+        'BRAJŠE BB.ULCINJ': req.davaoc_adresa or "____________",
+        'BRAJŠE BB ULCINJ': req.davaoc_adresa or "____________",
+        'BRAJŠE  BB.ULCINJ': req.davaoc_adresa or "____________",
+        'BRAJŠE   BB.ULCINJ': req.davaoc_adresa or "____________",
+        'iz Crne Gore': f'iz {req.davaoc_drzava}',
+        'iz  Crne Gore': f'iz {req.davaoc_drzava}',
+        # Naziv firme
+        '"ELA&ART" ULCINJ': req.firma_naziv or "____________",
+        '" ELA&ART " ULCINJ': req.firma_naziv or "____________",
+        'ELA&ART': req.firma_naziv or "____________",
+        # Punomoćnik
+        'GETUARD CEKOVIQ': req.punomocnik_ime_prezime or "____________",
+        '0806994223008': req.punomocnik_jmb or "____________",
+        # Datum
+        '12.05.2026': datum_str,
+        'dana 12.05.2026': f'dana {datum_str}',
+        # Generic placeholders sa underscore (ako template ima ___ markere)
+        '__________ ime prezime __________': req.davaoc_ime_prezime or "____________",
+        '__________ JMB __________': davaoc_id,
+        '__________ adresa __________': req.davaoc_adresa or "____________",
+        '__________ firma __________': req.firma_naziv or "____________",
+        '__________ datum __________': datum_str,
+    }
+    return repl
+
+
+@api_router.post("/punomoce/generate")
+async def generate_punomoce(req: PunomoceRequest, username: str = Depends(get_current_user)):
+    """Generiše Specijalno punomoćje DOCX + PDF."""
+    template_filename = "SPECIJALNO PUNOMOCJE.docx"
+    tpl_path = TEMPLATES_DIR / template_filename
+    if not tpl_path.exists():
+        # Pokušaj alternativne nazive
+        for alt in ["specijalno punomocje.docx", "Specijalno punomoćje.docx", "PUNOMOCJE.docx", "Punomocje.docx"]:
+            ap = TEMPLATES_DIR / alt
+            if ap.exists():
+                tpl_path = ap
+                template_filename = alt
+                break
+        else:
+            raise HTTPException(
+                404,
+                "Šablon 'SPECIJALNO PUNOMOCJE.docx' nije pronađen. "
+                "Molim te pošalji mi .docx fajl sa žutim oznakama gdje treba popuniti podatke."
+            )
+    
+    replacements = _build_punomoce_replacements(req)
+    
+    doc = Document(str(tpl_path))
+    _docx_replace(doc, replacements)
+    _remove_yellow_highlights(doc)
+    
+    short_name = re.sub(r'[^\w\s-]', '', req.davaoc_ime_prezime or "Punomoce")[:25].strip().replace(' ', '_')
+    output_filename = f"{uuid.uuid4().hex[:8]}_specijalno_punomocje_{short_name}.docx"
+    output_filename = re.sub(r'[^\w\s.-]', '_', output_filename).replace(' ', '_')
+    output_path = GENERATED_DIR / output_filename
+    doc.save(str(output_path))
+    
+    # Konvertuj u PDF
+    pdf_filename = output_filename.replace('.docx', '.pdf')
+    _convert_to_pdf(output_path)
+    
+    # Snimi u history
+    record = {
+        "id": str(uuid.uuid4()),
+        "filename": output_filename,
+        "pdf_filename": pdf_filename,
+        "template": template_filename,
+        "template_filename": template_filename,
+        "company_id": "punomocje",
+        "company_naziv": req.firma_naziv or req.davaoc_ime_prezime,
+        "employee_id": None,
+        "employee_naziv": req.davaoc_ime_prezime,
+        "custom_fields": req.model_dump(),
+        "created_at": datetime.now(timezone.utc).isoformat(),
+        "created_by": username,
+        "kategorija": "Specijalno punomoćje",
+    }
+    await db.generated_documents.insert_one(dict(record))
+    
+    return {
+        "success": True,
+        "filename": output_filename,
+        "pdf_filename": pdf_filename,
+        "download_url": f"/api/documents/download/{output_filename}",
+        "preview_url": f"/api/documents/preview/{pdf_filename}",
     }
 
 

@@ -57,7 +57,7 @@ export default function Layout() {
           {NAV.map((item) => {
             const Icon = item.icon;
             const isFirme = item.to === "/firme";
-            const showSub = isFirme && (location.pathname.startsWith("/firme") || location.pathname.startsWith("/osnivanje") || location.pathname.startsWith("/evidencija-rada"));
+            const showSub = isFirme && (location.pathname.startsWith("/firme") || location.pathname.startsWith("/osnivanje") || location.pathname.startsWith("/evidencija-rada") || location.pathname.startsWith("/specijalno-punomocje"));
             return (
               <div key={item.to}>
                 <NavLink
@@ -79,6 +79,15 @@ export default function Layout() {
                     >
                       <Plus size={14} />
                       <span>Osnivanje DOO</span>
+                    </NavLink>
+                    <NavLink
+                      to="/specijalno-punomocje"
+                      className={({ isActive }) => `sidebar-link ${isActive ? "active" : ""}`}
+                      data-testid="nav-specijalno-punomocje"
+                      style={{ marginLeft: 24, fontSize: 13, paddingTop: 6, paddingBottom: 6 }}
+                    >
+                      <FileText size={14} />
+                      <span>Specijalno punomoćje</span>
                     </NavLink>
                     <NavLink
                       to="/evidencija-rada"
