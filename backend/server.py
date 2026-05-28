@@ -3150,16 +3150,28 @@ async def generate_founding(req: FoundingRequest, username: str = Depends(get_cu
 # ============================================================================
 
 def _build_punomoce_replacements(req: 'PunomoceRequest') -> Dict[str, str]:
-    """Mapiranja za Specijalno punomoćje."""
+    """Mapiranja za Specijalno punomoćje (template: SPECIJALNO PUNOMOCJE.docx).
+    
+    Hardkodirane sample vrijednosti u template-u koje se zamjenjuju:
+      - Davalac: ARTA RESULBEGU-MURTEZA, JMB:1107981225018, iz Crne Gore
+      - Punomoćnik: Getuard Cekoviq, JMB: 0806994223008
+      - Firma: DOO "ULCINJ GRADNJA" Ulcinj  (sa " i „ navodnicima!)
+      - Datum: 13.05. 2026
+      - Grad: ULCINJ
+    """
     # Datum
     if req.datum:
         try:
             dt = datetime.fromisoformat(req.datum.replace('Z', ''))
             datum_str = dt.strftime("%d.%m.%Y")
+            datum_str_spaced = dt.strftime("%d.%m. %Y")  # template ima "13.05. 2026"
         except Exception:
             datum_str = req.datum
+            datum_str_spaced = req.datum
     else:
-        datum_str = datetime.now(timezone.utc).strftime("%d.%m.%Y")
+        now = datetime.now(timezone.utc)
+        datum_str = now.strftime("%d.%m.%Y")
+        datum_str_spaced = now.strftime("%d.%m. %Y")
     
     # Davalac - isprava (JMBG ili pasoš)
     if req.davaoc_is_stranac:
@@ -3169,39 +3181,67 @@ def _build_punomoce_replacements(req: 'PunomoceRequest') -> Dict[str, str]:
         davaoc_label = "JMB"
         davaoc_id = req.davaoc_jmb or "____________"
     
-    # Generičke žute oznake — sve hardkodirane vrijednosti iz template-a
-    # Pošto template još nije dostavljen, koristimo SVE moguće formate placeholdera
+    # Punomoćnik - obavezno
+    pun_ime = req.punomocnik_ime_prezime or "____________"
+    pun_jmb = req.punomocnik_jmb or "____________"
+    
+    # Firma
+    firma = req.firma_naziv or "____________"
+    
+    # Grad iz adrese (uzima riječ poslije zadnje zapete ili poslednju riječ)
+    davaoc_grad = "ULCINJ"
+    if req.davaoc_adresa:
+        adr = req.davaoc_adresa.strip()
+        if ',' in adr:
+            davaoc_grad = adr.split(',')[-1].strip().upper()
+        else:
+            # uzmi poslednju riječ
+            parts = adr.split()
+            if parts:
+                davaoc_grad = parts[-1].upper()
+    
     repl = {
-        # Davalac (ko daje punomoćje)
-        'ARJANA CEKOVIQ': req.davaoc_ime_prezime,
-        '2012985225015': davaoc_id,
-        'JMB: 2012985225015': f"{davaoc_label}: {davaoc_id}",
-        'JMB:2012985225015': f"{davaoc_label}:{davaoc_id}",
-        'JMBG 2012985225015': f"{davaoc_label} {davaoc_id}",
-        'JMBG: 2012985225015': f"{davaoc_label}: {davaoc_id}",
-        # Adresa davaoca
-        'BRAJŠE BB.ULCINJ': req.davaoc_adresa or "____________",
-        'BRAJŠE BB ULCINJ': req.davaoc_adresa or "____________",
-        'BRAJŠE  BB.ULCINJ': req.davaoc_adresa or "____________",
-        'BRAJŠE   BB.ULCINJ': req.davaoc_adresa or "____________",
+        # === Davalac (Punomoćodavac) ===
+        # Originalni text: "Ja, ARTA RESULBEGU-MURTEZA iz Crne Gore, JMB:1107981225018"
+        'ARTA RESULBEGU-MURTEZA': req.davaoc_ime_prezime,
+        # JMB davaoca
+        'JMB:1107981225018': f"{davaoc_label}:{davaoc_id}",
+        'JMB: 1107981225018': f"{davaoc_label}: {davaoc_id}",
+        '1107981225018': davaoc_id,
+        # Država davaoca
         'iz Crne Gore': f'iz {req.davaoc_drzava}',
         'iz  Crne Gore': f'iz {req.davaoc_drzava}',
-        # Naziv firme
-        '"ELA&ART" ULCINJ': req.firma_naziv or "____________",
-        '" ELA&ART " ULCINJ': req.firma_naziv or "____________",
-        'ELA&ART': req.firma_naziv or "____________",
-        # Punomoćnik
-        'GETUARD CEKOVIQ': req.punomocnik_ime_prezime or "____________",
-        '0806994223008': req.punomocnik_jmb or "____________",
-        # Datum
-        '12.05.2026': datum_str,
-        'dana 12.05.2026': f'dana {datum_str}',
-        # Generic placeholders sa underscore (ako template ima ___ markere)
-        '__________ ime prezime __________': req.davaoc_ime_prezime or "____________",
-        '__________ JMB __________': davaoc_id,
-        '__________ adresa __________': req.davaoc_adresa or "____________",
-        '__________ firma __________': req.firma_naziv or "____________",
-        '__________ datum __________': datum_str,
+        
+        # === Punomoćnik ===
+        # Originalni text: "ovlašćujem  Getuard Cekoviq JMB: 0806994223008"
+        'Getuard Cekoviq': pun_ime,
+        'GETUARD CEKOVIQ': pun_ime,
+        'JMB: 0806994223008': f"JMB: {pun_jmb}",
+        'JMB:0806994223008': f"JMB:{pun_jmb}",
+        '0806994223008': pun_jmb,
+        
+        # === Naziv firme — tri pojavljivanja sa različitim navodnicima ===
+        # P3, P4: DOO "ULCINJ GRADNJA" Ulcinj (sa " navodnicima)
+        # P14: DOO „ULCINJ GRADNJA" Ulcinj (sa „ navodnikom - njemački otvarač)
+        'DOO “ULCINJ GRADNJA“ Ulcinj': firma,
+        'DOO „ULCINJ GRADNJA" Ulcinj': firma,
+        'DOO "ULCINJ GRADNJA" Ulcinj': firma,
+        'DOO „ULCINJ GRADNJA“ Ulcinj': firma,
+        # Fallback bez "DOO" prefiksa
+        '"ULCINJ GRADNJA"': f'"{firma}"' if not firma.startswith('"') and not firma.lower().startswith('doo') else firma,
+        '„ULCINJ GRADNJA"': firma,
+        '„ULCINJ GRADNJA“': firma,
+        '“ULCINJ GRADNJA“': firma,
+        'ULCINJ GRADNJA': firma.replace('DOO', '').replace('"', '').replace('„', '').replace('“', '').strip(),
+        
+        # === Datum ===
+        '13.05. 2026': datum_str_spaced,
+        '13.05.2026': datum_str,
+        'dana 13.05. 2026': f'dana {datum_str_spaced}',
+        'dana 13.05.2026': f'dana {datum_str}',
+        
+        # === Grad potpisa (P17: "U ULCINJ, dana...") ===
+        'U ULCINJ, dana': f'U {davaoc_grad}, dana',
     }
     return repl
 
