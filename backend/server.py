@@ -2812,11 +2812,11 @@ def _build_founding_replacements(req: 'FoundingRequest') -> Dict[str, str]:
         'JMB: 2012985225015': f"{osnivac_jmb_label}: {osnivac_jmb_value}",
         'JMB:2012985225015': f"{osnivac_jmb_label}:{osnivac_jmb_value}",
         'JMBG 2012985225015': f"{osnivac_jmb_label} {osnivac_jmb_value}",
-        # Država
+        # === Država OSNIVAČA - samo gdje se govori o državljanstvu/prebivalištu ===
+        # Specifične fraze (NE diraju "propisi Crne Gore" — to ostaje uvijek)
         'iz  Crne Gore': f'iz {req.osnivac_drzava}',
         'iz Crne Gore': f'iz {req.osnivac_drzava}',
-        ' Crne Gore': f' {req.osnivac_drzava}',
-        'Crne Gore': req.osnivac_drzava,
+        # NE zamjenjuj generic "Crne Gore" — može pokvariti "propisi Crne Gore", "Vlade Crne Gore", "zakoni Crne Gore" itd.
         # === Datum rođenja (samo u SAGLASNOST) ===
         '20.12.1985': datum_rod_str,
         # === Pol direktora u Saglasnosti (rodjena/rodjen, saglasna/saglasan) ===
@@ -2854,10 +2854,6 @@ def _build_founding_replacements(req: 'FoundingRequest') -> Dict[str, str]:
         # === Datum odluke ===
         '12.05.2026': datum_str,
         'dana 12.05.2026': f"dana {datum_str}",
-        
-        # === Član 10.1 Odluke o osnivanju — "propisi Crne Gore" → "propisi Republike Crne Gore" ===
-        'pozitivni zakonski propisi Crne Gore': 'pozitivni zakonski propisi Republike Crne Gore',
-        'zakonski propisi Crne Gore': 'zakonski propisi Republike Crne Gore',
         
         # === Osnovni kapital ===
         '1,00 EUR': f"{req.osnovni_kapital:.2f} EUR".replace('.', ','),
