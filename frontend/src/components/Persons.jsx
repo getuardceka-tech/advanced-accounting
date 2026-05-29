@@ -24,6 +24,7 @@ export default function Persons() {
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState("");
   const [companyFilter, setCompanyFilter] = useState("");
+  const [statusFilter, setStatusFilter] = useState(""); // "" / "domaci" / "stranci"
   const [modalOpen, setModalOpen] = useState(false);
   const [editing, setEditing] = useState(null);
   const [form, setForm] = useState(empEmpty);
@@ -51,6 +52,12 @@ export default function Persons() {
     const t = setTimeout(load, 200);
     return () => clearTimeout(t);
   }, [search, companyFilter]); // eslint-disable-line
+  
+  const displayItems = useMemo(() => {
+    if (statusFilter === "domaci") return items.filter((p) => !p.is_stranac);
+    if (statusFilter === "stranci") return items.filter((p) => p.is_stranac);
+    return items;
+  }, [items, statusFilter]);
 
   const openCreate = () => {
     setEditing(null);
@@ -219,6 +226,34 @@ export default function Persons() {
           <Plus size={15} /> Dodaj fizičko lice
         </button>
       </div>
+      
+      {/* === STATISTIKA: domaći vs stranci === */}
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 12, marginBottom: 16 }}>
+        <PersonStatCard
+          label="Ukupno zaposlenih"
+          value={items.length}
+          color="#64748b"
+          icon="👥"
+          active={statusFilter === ""}
+          onClick={() => setStatusFilter("")}
+        />
+        <PersonStatCard
+          label="🇲🇪 Domaća lica (Crna Gora)"
+          value={items.filter((p) => !p.is_stranac).length}
+          color="#10b981"
+          active={statusFilter === "domaci"}
+          onClick={() => setStatusFilter(statusFilter === "domaci" ? "" : "domaci")}
+          testid="stat-domaci"
+        />
+        <PersonStatCard
+          label="🌍 Strani državljani"
+          value={items.filter((p) => p.is_stranac).length}
+          color="#f59e0b"
+          active={statusFilter === "stranci"}
+          onClick={() => setStatusFilter(statusFilter === "stranci" ? "" : "stranci")}
+          testid="stat-stranci"
+        />
+      </div>
 
       <div style={{ display: "flex", gap: 12, marginBottom: 16, flexWrap: "wrap" }}>
         <div className="topbar-search" style={{ maxWidth: 360, flex: 1, minWidth: 240 }}>
@@ -246,12 +281,14 @@ export default function Persons() {
 
       {loading ? (
         <div className="empty"><Spinner size={28} className="spin" /></div>
-      ) : items.length === 0 ? (
+      ) : displayItems.length === 0 ? (
         <div className="empty">
           <div className="empty-icon"><Users size={24} /></div>
-          <div className="empty-title">Nema unesenih fizičkih lica</div>
+          <div className="empty-title">{statusFilter ? `Nema ${statusFilter === "domaci" ? "domaćih lica" : "stranih državljana"}` : "Nema unesenih fizičkih lica"}</div>
           <div className="empty-text">
-            Dodajte zaposlene da možete brže generisati ugovore, odluke i ostale dokumente.
+            {statusFilter
+              ? "Promijeni filter ili dodaj novo lice."
+              : "Dodajte zaposlene da možete brže generisati ugovore, odluke i ostale dokumente."}
           </div>
           <button className="btn btn-primary" onClick={openCreate}>
             <Plus size={14} /> Dodaj prvo fizičko lice
@@ -263,7 +300,7 @@ export default function Persons() {
             <thead>
               <tr>
                 <th>Ime i prezime</th>
-                <th>JMBG</th>
+                <th>JMBG / Pasoš</th>
                 <th>Firma</th>
                 <th>Radno mjesto</th>
                 <th>Plata</th>
@@ -271,7 +308,7 @@ export default function Persons() {
               </tr>
             </thead>
             <tbody>
-              {items.map((p) => (
+              {displayItems.map((p) => (
                 <tr key={p.id} data-testid={`person-row-${p.id}`}>
                   <td>
                     <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
@@ -544,6 +581,35 @@ const Field = ({ label, value, onChange, testid, type = "text" }) => (
     <input className="input" type={type} value={value ?? ""} onChange={(e) => onChange(e.target.value)} data-testid={testid} />
   </div>
 );
+
+function PersonStatCard({ label, value, color, icon, active, onClick, testid }) {
+  return (
+    <div
+      onClick={onClick}
+      data-testid={testid}
+      style={{
+        background: "white",
+        border: `1px solid ${active ? color : "var(--border)"}`,
+        borderRadius: 10,
+        padding: "14px 18px",
+        display: "flex",
+        alignItems: "center",
+        gap: 14,
+        cursor: "pointer",
+        boxShadow: active ? `0 0 0 3px ${color}25` : "none",
+        transition: "all 0.15s",
+      }}
+    >
+      {icon && (
+        <div style={{ fontSize: 24, opacity: 0.9 }}>{icon}</div>
+      )}
+      <div>
+        <div style={{ fontSize: 11.5, color: "var(--text-tertiary)", fontWeight: 500, marginBottom: 2 }}>{label}</div>
+        <div style={{ fontSize: 22, fontWeight: 700, color }}>{value}</div>
+      </div>
+    </div>
+  );
+}
 
 function CompanySearch({ companies, selectedId, onSelect }) {
   const [query, setQuery] = useState("");
