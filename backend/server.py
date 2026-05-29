@@ -3060,6 +3060,176 @@ async def delete_founding_template(tpl_id: str, username: str = Depends(get_curr
     return {"success": True}
 
 
+# ============================================================================
+# VAULT — Lozinke za tokene i lične karte klijenata
+# ============================================================================
+
+class VaultCredential(BaseModel):
+    naziv: str  # ime/prezime ILI naziv firme
+    tip: str = "licna_karta"  # licna_karta / token / oba
+    company_id: Optional[str] = None
+    # Lična karta
+    pin: Optional[str] = ""
+    puk: Optional[str] = ""
+    can: Optional[str] = ""
+    broj_licne: Optional[str] = ""
+    # Token
+    token_password: Optional[str] = ""
+    token_serial: Optional[str] = ""
+    # Datumi
+    datum_preuzimanja: Optional[str] = ""
+    datum_isteka: Optional[str] = ""
+    napomena: Optional[str] = ""
+
+
+@api_router.get("/vault")
+async def list_vault(
+    q: Optional[str] = None,
+    tip: Optional[str] = None,
+    company_id: Optional[str] = None,
+    sort_by_expiry: bool = True,
+    limit: int = 500,
+    username: str = Depends(get_current_user),
+):
+    """Lista lozinki — sortirano po datumu isteka (najbliži istek prvi)."""
+    query: Dict = {}
+    if tip:
+        query["tip"] = tip
+    if company_id:
+        query["company_id"] = company_id
+    if q:
+        query["$or"] = [
+            {"naziv": {"$regex": q, "$options": "i"}},
+            {"broj_licne": {"$regex": q, "$options": "i"}},
+            {"napomena": {"$regex": q, "$options": "i"}},
+        ]
+    
+    items = await db.vault_credentials.find(query, {"_id": 0}).to_list(limit)
+    
+    # Sortiranje po datumu isteka (oni koji ističu prvi su gore)
+    if sort_by_expiry:
+        def sort_key(it):
+            d = it.get("datum_isteka") or ""
+            return d if d else "9999-99-99"
+        items.sort(key=sort_key)
+    
+    # Dodaj polje is_expiring (2 mjeseca prije isteka)
+    today = datetime.now(timezone.utc).date()
+    for it in items:
+        d_str = it.get("datum_isteka") or ""
+        it["is_expired"] = False
+        it["is_expiring"] = False
+        it["days_to_expiry"] = None
+        if d_str:
+            try:
+                d = datetime.fromisoformat(d_str.replace('Z', '')).date()
+                delta = (d - today).days
+                it["days_to_expiry"] = delta
+                if delta < 0:
+                    it["is_expired"] = True
+                elif delta <= 60:
+                    it["is_expiring"] = True
+            except Exception:
+                pass
+    
+    return items
+
+
+@api_router.post("/vault")
+async def create_vault(req: VaultCredential, username: str = Depends(get_current_user)):
+    if not req.naziv.strip():
+        raise HTTPException(400, "Naziv (ime/prezime ili firma) je obavezan")
+    
+    record = {
+        "id": str(uuid.uuid4()),
+        "naziv": req.naziv.strip(),
+        "tip": req.tip,
+        "company_id": req.company_id or "",
+        "pin": req.pin or "",
+        "puk": req.puk or "",
+        "can": req.can or "",
+        "broj_licne": req.broj_licne or "",
+        "token_password": req.token_password or "",
+        "token_serial": req.token_serial or "",
+        "datum_preuzimanja": req.datum_preuzimanja or "",
+        "datum_isteka": req.datum_isteka or "",
+        "napomena": req.napomena or "",
+        "created_at": datetime.now(timezone.utc).isoformat(),
+        "updated_at": datetime.now(timezone.utc).isoformat(),
+        "created_by": username,
+    }
+    await db.vault_credentials.insert_one(dict(record))
+    return record
+
+
+@api_router.patch("/vault/{vid}")
+async def update_vault(vid: str, req: VaultCredential, username: str = Depends(get_current_user)):
+    existing = await db.vault_credentials.find_one({"id": vid}, {"_id": 0})
+    if not existing:
+        raise HTTPException(404, "Lozinka nije pronađena")
+    
+    updates = {
+        "naziv": req.naziv.strip(),
+        "tip": req.tip,
+        "company_id": req.company_id or "",
+        "pin": req.pin or "",
+        "puk": req.puk or "",
+        "can": req.can or "",
+        "broj_licne": req.broj_licne or "",
+        "token_password": req.token_password or "",
+        "token_serial": req.token_serial or "",
+        "datum_preuzimanja": req.datum_preuzimanja or "",
+        "datum_isteka": req.datum_isteka or "",
+        "napomena": req.napomena or "",
+        "updated_at": datetime.now(timezone.utc).isoformat(),
+    }
+    await db.vault_credentials.update_one({"id": vid}, {"$set": updates})
+    return {**existing, **updates}
+
+
+@api_router.delete("/vault/{vid}")
+async def delete_vault(vid: str, username: str = Depends(get_current_user)):
+    r = await db.vault_credentials.delete_one({"id": vid})
+    if r.deleted_count == 0:
+        raise HTTPException(404, "Lozinka nije pronađena")
+    return {"success": True}
+
+
+@api_router.post("/vault/bulk-import")
+async def bulk_import_vault(payload: Dict[str, Any], username: str = Depends(get_current_user)):
+    """Bulk import — prima listu objekata sa istim poljima kao VaultCredential."""
+    items = payload.get("items") or []
+    if not isinstance(items, list):
+        raise HTTPException(400, "items mora biti lista")
+    
+    created = 0
+    for it in items:
+        if not (it.get("naziv") or "").strip():
+            continue
+        record = {
+            "id": str(uuid.uuid4()),
+            "naziv": (it.get("naziv") or "").strip(),
+            "tip": it.get("tip") or "licna_karta",
+            "company_id": it.get("company_id") or "",
+            "pin": it.get("pin") or "",
+            "puk": it.get("puk") or "",
+            "can": it.get("can") or "",
+            "broj_licne": it.get("broj_licne") or "",
+            "token_password": it.get("token_password") or "",
+            "token_serial": it.get("token_serial") or "",
+            "datum_preuzimanja": it.get("datum_preuzimanja") or "",
+            "datum_isteka": it.get("datum_isteka") or "",
+            "napomena": it.get("napomena") or "",
+            "created_at": datetime.now(timezone.utc).isoformat(),
+            "updated_at": datetime.now(timezone.utc).isoformat(),
+            "created_by": username,
+        }
+        await db.vault_credentials.insert_one(dict(record))
+        created += 1
+    
+    return {"success": True, "created": created}
+
+
 
 @api_router.post("/founding/generate")
 async def generate_founding(req: FoundingRequest, username: str = Depends(get_current_user)):

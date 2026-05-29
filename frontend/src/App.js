@@ -11,6 +11,7 @@ import Persons from "@/components/Persons";
 import OsnivanjeDOO from "@/components/OsnivanjeDOO";
 import EvidencijaRada from "@/components/EvidencijaRada";
 import SpecijalnoPunomoce from "@/components/SpecijalnoPunomoce";
+import Vault from "@/components/Vault";
 import Documents from "@/components/Documents";
 import PdvTracking from "@/components/PdvTracking";
 import AgencySettings from "@/components/AgencySettings";
@@ -48,6 +49,7 @@ function App() {
           <Route path="firme/:id" element={<CompanyDetail />} />
           <Route path="osnivanje" element={<OsnivanjeDOO />} />
           <Route path="specijalno-punomocje" element={<SpecijalnoPunomoce />} />
+          <Route path="vault" element={<Vault />} />
           <Route path="evidencija-rada" element={<EvidencijaRada />} />
           <Route path="fizicka-lica" element={<Persons />} />
           <Route path="dokumenti" element={<Documents />} />

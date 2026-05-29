@@ -11,6 +11,7 @@ import {
   Bell,
   Users,
   Plus,
+  Lock,
 } from "@phosphor-icons/react";
 import api, { clearToken } from "@/lib/api";
 
@@ -57,7 +58,7 @@ export default function Layout() {
           {NAV.map((item) => {
             const Icon = item.icon;
             const isFirme = item.to === "/firme";
-            const showSub = isFirme && (location.pathname.startsWith("/firme") || location.pathname.startsWith("/osnivanje") || location.pathname.startsWith("/evidencija-rada") || location.pathname.startsWith("/specijalno-punomocje"));
+            const showSub = isFirme && (location.pathname.startsWith("/firme") || location.pathname.startsWith("/osnivanje") || location.pathname.startsWith("/evidencija-rada") || location.pathname.startsWith("/specijalno-punomocje") || location.pathname.startsWith("/vault"));
             return (
               <div key={item.to}>
                 <NavLink
@@ -88,6 +89,15 @@ export default function Layout() {
                     >
                       <FileText size={14} />
                       <span>Specijalno punomoćje</span>
+                    </NavLink>
+                    <NavLink
+                      to="/vault"
+                      className={({ isActive }) => `sidebar-link ${isActive ? "active" : ""}`}
+                      data-testid="nav-vault"
+                      style={{ marginLeft: 24, fontSize: 13, paddingTop: 6, paddingBottom: 6 }}
+                    >
+                      <Lock size={14} />
+                      <span>Passwordi za token / lične karte</span>
                     </NavLink>
                     <NavLink
                       to="/evidencija-rada"
