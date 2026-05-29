@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import {
   Users, MagnifyingGlass, Plus, PencilSimple, Trash, ArrowSquareOut,
@@ -374,16 +374,11 @@ function PersonModal({ form, setForm, editing, companies, onSave, onClose, onSav
           <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 14 }}>
             <div className="field-group" style={{ gridColumn: "1/-1" }}>
               <label className="field-label">Firma * (gdje je lice zaposleno)</label>
-              <select
-                className="select" value={form.company_id || ""}
-                onChange={(e) => u("company_id", e.target.value)}
-                data-testid="person-company-select"
-              >
-                <option value="">— Odaberi firmu —</option>
-                {companies.map((c) => (
-                  <option key={c.id} value={c.id}>{c.naziv} ({c.pib})</option>
-                ))}
-              </select>
+              <CompanySearch
+                companies={companies}
+                selectedId={form.company_id}
+                onSelect={(c) => u("company_id", c ? c.id : "")}
+              />
             </div>
             <Field label="Ime *" value={form.ime} onChange={(v) => u("ime", v)} testid="person-ime" />
             <Field label="Prezime *" value={form.prezime} onChange={(v) => u("prezime", v)} testid="person-prezime" />
@@ -549,6 +544,109 @@ const Field = ({ label, value, onChange, testid, type = "text" }) => (
     <input className="input" type={type} value={value ?? ""} onChange={(e) => onChange(e.target.value)} data-testid={testid} />
   </div>
 );
+
+function CompanySearch({ companies, selectedId, onSelect }) {
+  const [query, setQuery] = useState("");
+  const [open, setOpen] = useState(false);
+  
+  const selected = companies.find((c) => c.id === selectedId);
+  
+  const filtered = useMemo(() => {
+    if (!query.trim()) return companies.slice(0, 50);
+    const q = query.toLowerCase().trim();
+    return companies.filter((c) =>
+      (c.naziv || "").toLowerCase().includes(q) ||
+      (c.naziv_skraceni || "").toLowerCase().includes(q) ||
+      (c.pib || "").includes(q)
+    ).slice(0, 50);
+  }, [companies, query]);
+  
+  if (selected && !open) {
+    return (
+      <div
+        className="input"
+        style={{ cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "space-between", padding: "8px 12px" }}
+        onClick={() => setOpen(true)}
+        data-testid="company-search-selected"
+      >
+        <div style={{ display: "flex", flexDirection: "column", flex: 1, minWidth: 0 }}>
+          <div style={{ fontSize: 13.5, fontWeight: 600, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
+            {selected.naziv}
+          </div>
+          <div style={{ fontSize: 11.5, color: "var(--text-tertiary)" }}>
+            PIB: {selected.pib}
+          </div>
+        </div>
+        <button
+          onClick={(e) => { e.stopPropagation(); onSelect(null); setQuery(""); setOpen(true); }}
+          style={{ background: "none", border: "none", cursor: "pointer", padding: 4, color: "var(--text-tertiary)" }}
+          title="Promijeni firmu"
+        >
+          <X size={14} />
+        </button>
+      </div>
+    );
+  }
+  
+  return (
+    <div style={{ position: "relative" }} data-testid="company-search">
+      <div style={{ position: "relative" }}>
+        <MagnifyingGlass size={14} style={{ position: "absolute", left: 10, top: 12, color: "var(--text-tertiary)" }} />
+        <input
+          className="input"
+          placeholder="Kucaj naziv firme ili PIB..."
+          value={query}
+          onChange={(e) => { setQuery(e.target.value); setOpen(true); }}
+          onFocus={() => setOpen(true)}
+          onBlur={() => setTimeout(() => setOpen(false), 200)}
+          autoFocus
+          style={{ paddingLeft: 32 }}
+          data-testid="company-search-input"
+        />
+      </div>
+      {open && (
+        <div
+          style={{
+            position: "absolute", top: "calc(100% + 4px)", left: 0, right: 0,
+            background: "white", border: "1px solid var(--border)", borderRadius: 8,
+            boxShadow: "0 8px 24px rgba(0,0,0,0.12)", zIndex: 100,
+            maxHeight: 280, overflow: "auto"
+          }}
+        >
+          {filtered.length === 0 && (
+            <div style={{ padding: 14, textAlign: "center", color: "var(--text-tertiary)", fontSize: 13 }}>
+              Nema firmi za "{query}"
+            </div>
+          )}
+          {filtered.map((c) => (
+            <div
+              key={c.id}
+              onMouseDown={(e) => { e.preventDefault(); onSelect(c); setOpen(false); setQuery(""); }}
+              data-testid={`company-opt-${c.id}`}
+              style={{
+                padding: "9px 12px",
+                cursor: "pointer",
+                borderBottom: "1px solid var(--border-light)",
+                display: "flex",
+                flexDirection: "column",
+                gap: 2,
+                fontSize: 13,
+              }}
+              onMouseEnter={(e) => e.currentTarget.style.background = "#f8fafc"}
+              onMouseLeave={(e) => e.currentTarget.style.background = "white"}
+            >
+              <div style={{ fontWeight: 500 }}>{c.naziv}</div>
+              <div style={{ fontSize: 11.5, color: "var(--text-tertiary)" }}>
+                {c.naziv_skraceni && <span>{c.naziv_skraceni} · </span>}
+                PIB: {c.pib}
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
 
 function PonudaModal({ person, type, onClose, onGenerate }) {
   const today = new Date().toISOString().slice(0, 10);
