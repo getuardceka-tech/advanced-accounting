@@ -1,0 +1,699 @@
+import { useEffect, useMemo, useState } from "react";
+import {
+  CurrencyEur, Plus, MagnifyingGlass, X, Check, Spinner,
+  Trash, Pencil, Receipt, TrendUp, TrendDown,
+  CheckCircle, Clock, Calendar, Briefcase, Wallet
+} from "@phosphor-icons/react";
+import api from "@/lib/api";
+
+const MJESECI = ["Januar", "Februar", "Mart", "April", "Maj", "Jun", "Jul", "Avgust", "Septembar", "Oktobar", "Novembar", "Decembar"];
+
+export default function Finansije() {
+  const [tab, setTab] = useState("naknade");
+  
+  return (
+    <div data-testid="finansije-page">
+      <div className="page-header">
+        <div>
+          <h1 className="page-title">Finansije agencije</h1>
+          <p className="page-subtitle">
+            Cjenovnik, mjesečne naknade, dodatne usluge, troškovi i pregled profita.
+          </p>
+        </div>
+      </div>
+      
+      {/* Tabs */}
+      <div style={{ display: "flex", gap: 4, marginBottom: 20, background: "white", padding: 5, borderRadius: 10, border: "1px solid var(--border)", width: "fit-content" }}>
+        {[
+          { v: "naknade", l: "💰 Mjesečne naknade", icon: CurrencyEur },
+          { v: "usluge", l: "🛠️ Dodatne usluge", icon: Briefcase },
+          { v: "troskovi", l: "📉 Troškovi", icon: Wallet },
+          { v: "pregled", l: "📊 Pregled profita", icon: TrendUp },
+        ].map((t) => (
+          <button
+            key={t.v}
+            onClick={() => setTab(t.v)}
+            data-testid={`tab-${t.v}`}
+            style={{
+              padding: "8px 18px",
+              borderRadius: 7,
+              border: "none",
+              background: tab === t.v ? "var(--accent)" : "transparent",
+              color: tab === t.v ? "white" : "var(--text-secondary)",
+              cursor: "pointer",
+              fontSize: 13,
+              fontWeight: tab === t.v ? 600 : 500,
+              transition: "all 0.15s",
+            }}
+          >
+            {t.l}
+          </button>
+        ))}
+      </div>
+      
+      {tab === "naknade" && <MjesecneNaknade />}
+      {tab === "usluge" && <DodatneUsluge />}
+      {tab === "troskovi" && <Troskovi />}
+      {tab === "pregled" && <PregledProfita />}
+    </div>
+  );
+}
+
+/* =================== MJESEČNE NAKNADE =================== */
+function MjesecneNaknade() {
+  const today = new Date();
+  const [godina, setGodina] = useState(today.getFullYear());
+  const [mjesec, setMjesec] = useState(today.getMonth() + 1);
+  const [items, setItems] = useState([]);
+  const [pricing, setPricing] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [search, setSearch] = useState("");
+  const [showPricing, setShowPricing] = useState(false);
+  
+  const load = async () => {
+    setLoading(true);
+    try {
+      const [pr, pricR] = await Promise.all([
+        api.get("/finance/payments", { params: { godina, mjesec } }),
+        api.get("/finance/pricing"),
+      ]);
+      setItems(pr.data);
+      setPricing(pricR.data);
+    } finally { setLoading(false); }
+  };
+  useEffect(() => { load(); /* eslint-disable-next-line */ }, [godina, mjesec]);
+  
+  const filtered = useMemo(() => {
+    if (!search.trim()) return items;
+    const q = search.toLowerCase();
+    return items.filter((i) => (i.company_naziv || "").toLowerCase().includes(q));
+  }, [items, search]);
+  
+  const updatePayment = async (item, patch) => {
+    const payload = {
+      company_id: item.company_id,
+      godina, mjesec,
+      iznos: Number(patch.iznos ?? item.iznos) || 0,
+      is_paid: patch.is_paid !== undefined ? patch.is_paid : item.is_paid,
+      datum_naplate: patch.datum_naplate !== undefined ? patch.datum_naplate : (item.datum_naplate || ""),
+      napomena: patch.napomena !== undefined ? patch.napomena : (item.napomena || ""),
+    };
+    await api.post("/finance/payments", payload);
+    await load();
+  };
+  
+  const total = filtered.reduce((acc, i) => acc + (Number(i.iznos) || 0), 0);
+  const paid = filtered.filter((i) => i.is_paid).reduce((acc, i) => acc + (Number(i.iznos) || 0), 0);
+  const pending = total - paid;
+  
+  return (
+    <div>
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 12, marginBottom: 14 }}>
+        <StatCard label="Ukupno mjesečno" value={`${total.toFixed(2)} €`} color="#64748b" icon={CurrencyEur} />
+        <StatCard label="Naplaćeno" value={`${paid.toFixed(2)} €`} color="#10b981" icon={CheckCircle} />
+        <StatCard label="Čeka uplatu" value={`${pending.toFixed(2)} €`} color="#f59e0b" icon={Clock} />
+      </div>
+      
+      <div style={{ background: "white", border: "1px solid var(--border)", borderRadius: 10, padding: 14, marginBottom: 14, display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
+        <select className="select" value={mjesec} onChange={(e) => setMjesec(Number(e.target.value))} data-testid="filter-mjesec" style={{ minWidth: 140 }}>
+          {MJESECI.map((m, i) => <option key={i} value={i + 1}>{m}</option>)}
+        </select>
+        <select className="select" value={godina} onChange={(e) => setGodina(Number(e.target.value))} data-testid="filter-godina" style={{ width: 110 }}>
+          {[2024, 2025, 2026, 2027].map((g) => <option key={g} value={g}>{g}</option>)}
+        </select>
+        <div style={{ position: "relative", flex: 1, minWidth: 220 }}>
+          <MagnifyingGlass size={14} style={{ position: "absolute", left: 11, top: 11, color: "var(--text-tertiary)" }} />
+          <input className="input" placeholder="Pretraži firmu..." value={search} onChange={(e) => setSearch(e.target.value)} style={{ paddingLeft: 32 }} />
+        </div>
+        <button className="btn btn-secondary" onClick={() => setShowPricing(!showPricing)} data-testid="cjenovnik-btn">
+          ⚙️ Cjenovnik firmi
+        </button>
+      </div>
+      
+      {showPricing && (
+        <PricingPanel pricing={pricing} onClose={() => setShowPricing(false)} onSaved={load} />
+      )}
+      
+      {loading ? <div style={{ padding: 40, textAlign: "center" }}><Spinner size={24} className="spin" /></div> : (
+        <div style={{ background: "white", border: "1px solid var(--border)", borderRadius: 10, overflow: "hidden" }}>
+          <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}>
+            <thead style={{ background: "#f8fafc", borderBottom: "1px solid var(--border)" }}>
+              <tr>
+                <th style={th}>Firma</th>
+                <th style={{ ...th, width: 130 }}>Iznos (€)</th>
+                <th style={{ ...th, width: 100 }}>Naplaćeno</th>
+                <th style={{ ...th, width: 150 }}>Datum naplate</th>
+                <th style={th}>Napomena</th>
+              </tr>
+            </thead>
+            <tbody>
+              {filtered.map((it) => (
+                <tr key={it.company_id} style={{ borderBottom: "1px solid var(--border-light)", background: it.is_paid ? "#f0fdf4" : "white" }} data-testid={`payment-row-${it.company_id}`}>
+                  <td style={{ ...td, fontWeight: 500 }}>{it.company_naziv}</td>
+                  <td style={td}>
+                    <input
+                      className="input"
+                      type="number"
+                      step="0.01"
+                      value={it.iznos ?? 0}
+                      onChange={(e) => {
+                        const v = Number(e.target.value);
+                        setItems(items.map((x) => x.company_id === it.company_id ? { ...x, iznos: v } : x));
+                      }}
+                      onBlur={(e) => updatePayment(it, { iznos: e.target.value })}
+                      style={{ padding: "5px 8px", fontSize: 13, height: 30 }}
+                    />
+                  </td>
+                  <td style={{ ...td, textAlign: "center" }}>
+                    <input
+                      type="checkbox"
+                      checked={it.is_paid || false}
+                      onChange={(e) => updatePayment(it, { is_paid: e.target.checked, datum_naplate: e.target.checked && !it.datum_naplate ? new Date().toISOString().slice(0, 10) : it.datum_naplate })}
+                      style={{ width: 18, height: 18, cursor: "pointer" }}
+                      data-testid={`payment-paid-${it.company_id}`}
+                    />
+                  </td>
+                  <td style={td}>
+                    <input
+                      className="input"
+                      type="date"
+                      value={it.datum_naplate || ""}
+                      onChange={(e) => updatePayment(it, { datum_naplate: e.target.value })}
+                      style={{ padding: "5px 8px", fontSize: 12.5, height: 30 }}
+                      disabled={!it.is_paid}
+                    />
+                  </td>
+                  <td style={td}>
+                    <input
+                      className="input"
+                      placeholder="Napomena..."
+                      value={it.napomena || ""}
+                      onChange={(e) => setItems(items.map((x) => x.company_id === it.company_id ? { ...x, napomena: e.target.value } : x))}
+                      onBlur={(e) => updatePayment(it, { napomena: e.target.value })}
+                      style={{ padding: "5px 8px", fontSize: 12.5, height: 30 }}
+                    />
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function PricingPanel({ pricing, onClose, onSaved }) {
+  const [rows, setRows] = useState(pricing);
+  
+  const save = async (cid, fee) => {
+    await api.put(`/finance/pricing/${cid}`, { company_id: cid, monthly_fee: Number(fee) || 0 });
+    onSaved();
+  };
+  
+  return (
+    <div style={{ background: "white", border: "1px solid var(--border)", borderRadius: 10, padding: 16, marginBottom: 14 }}>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
+        <h3 style={{ margin: 0, fontSize: 14, fontWeight: 600 }}>Standardni mjesečni cjenovnik po firmi</h3>
+        <button onClick={onClose} style={{ background: "none", border: "none", cursor: "pointer", padding: 4 }}><X size={16} /></button>
+      </div>
+      <div style={{ maxHeight: 350, overflow: "auto" }}>
+        <table style={{ width: "100%", fontSize: 12.5 }}>
+          <thead><tr style={{ background: "#f8fafc" }}>
+            <th style={{ padding: 8, textAlign: "left" }}>Firma</th>
+            <th style={{ padding: 8, textAlign: "left", width: 120 }}>Mjesečno (€)</th>
+          </tr></thead>
+          <tbody>
+            {rows.map((r) => (
+              <tr key={r.company_id} style={{ borderBottom: "1px solid var(--border-light)" }}>
+                <td style={{ padding: 6 }}>{r.naziv}</td>
+                <td style={{ padding: 6 }}>
+                  <input
+                    className="input"
+                    type="number" step="0.01"
+                    value={r.monthly_fee ?? 0}
+                    onChange={(e) => setRows(rows.map((x) => x.company_id === r.company_id ? { ...x, monthly_fee: Number(e.target.value) } : x))}
+                    onBlur={(e) => save(r.company_id, e.target.value)}
+                    style={{ padding: "4px 8px", fontSize: 12.5, height: 28 }}
+                  />
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
+}
+
+/* =================== DODATNE USLUGE =================== */
+function DodatneUsluge() {
+  const [items, setItems] = useState([]);
+  const [companies, setCompanies] = useState([]);
+  const [godina, setGodina] = useState(new Date().getFullYear());
+  const [modal, setModal] = useState(null);
+  const [loading, setLoading] = useState(true);
+  
+  const load = async () => {
+    setLoading(true);
+    const [s, c] = await Promise.all([
+      api.get("/finance/services", { params: { godina } }),
+      companies.length ? Promise.resolve({ data: companies }) : api.get("/companies"),
+    ]);
+    setItems(s.data);
+    if (!companies.length) setCompanies(c.data);
+    setLoading(false);
+  };
+  useEffect(() => { load(); /* eslint-disable-next-line */ }, [godina]);
+  
+  const remove = async (id) => {
+    if (!confirm("Obrisati uslugu?")) return;
+    await api.delete(`/finance/services/${id}`);
+    load();
+  };
+  
+  const total = items.reduce((a, i) => a + (Number(i.iznos) || 0), 0);
+  const paid = items.filter((i) => i.is_paid).reduce((a, i) => a + (Number(i.iznos) || 0), 0);
+  
+  return (
+    <div>
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 12, marginBottom: 14 }}>
+        <StatCard label="Ukupno usluga" value={items.length} color="#64748b" icon={Briefcase} />
+        <StatCard label="Naplaćeno" value={`${paid.toFixed(2)} €`} color="#10b981" icon={CheckCircle} />
+        <StatCard label="Neisplaćeno" value={`${(total - paid).toFixed(2)} €`} color="#f59e0b" icon={Clock} />
+      </div>
+      <div style={{ marginBottom: 14, display: "flex", gap: 10, alignItems: "center" }}>
+        <select className="select" value={godina} onChange={(e) => setGodina(Number(e.target.value))} style={{ width: 110 }}>
+          {[2024, 2025, 2026, 2027].map((g) => <option key={g} value={g}>{g}</option>)}
+        </select>
+        <button className="btn btn-primary" onClick={() => setModal({ entry: { datum: new Date().toISOString().slice(0, 10), is_paid: false } })} data-testid="add-service-btn">
+          <Plus size={14} /> Dodaj uslugu
+        </button>
+      </div>
+      
+      {loading ? <div style={{ padding: 40, textAlign: "center" }}><Spinner size={24} className="spin" /></div> : (
+        <div style={{ background: "white", border: "1px solid var(--border)", borderRadius: 10, overflow: "hidden" }}>
+          {items.length === 0 ? (
+            <div style={{ padding: 40, textAlign: "center", color: "var(--text-tertiary)", fontSize: 13 }}>
+              Nema dodatnih usluga za {godina}. Dodaj prvu uslugu.
+            </div>
+          ) : (
+            <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}>
+              <thead style={{ background: "#f8fafc" }}>
+                <tr>
+                  <th style={th}>Datum</th>
+                  <th style={th}>Firma</th>
+                  <th style={th}>Usluga</th>
+                  <th style={{ ...th, textAlign: "right" }}>Iznos (€)</th>
+                  <th style={th}>Status</th>
+                  <th style={{ ...th, textAlign: "right" }}></th>
+                </tr>
+              </thead>
+              <tbody>
+                {items.map((it) => (
+                  <tr key={it.id} style={{ borderBottom: "1px solid var(--border-light)" }}>
+                    <td style={{ ...td, fontSize: 12.5 }}>{new Date(it.datum).toLocaleDateString("sr-Latn-ME")}</td>
+                    <td style={{ ...td, fontWeight: 500 }}>{it.company_naziv || "—"}</td>
+                    <td style={td}>{it.naziv}</td>
+                    <td style={{ ...td, textAlign: "right", fontWeight: 600 }}>{Number(it.iznos).toFixed(2)} €</td>
+                    <td style={td}>
+                      <span style={{ display: "inline-flex", alignItems: "center", gap: 4, fontSize: 12, color: it.is_paid ? "#10b981" : "#f59e0b", background: it.is_paid ? "#d1fae5" : "#fef3c7", padding: "3px 8px", borderRadius: 10, fontWeight: 500 }}>
+                        {it.is_paid ? "Naplaćeno" : "Čeka uplatu"}
+                      </span>
+                    </td>
+                    <td style={{ ...td, textAlign: "right" }}>
+                      <button className="btn btn-secondary" onClick={() => setModal({ entry: it })} style={{ padding: "4px 7px" }}><Pencil size={11} /></button>
+                      <button className="btn btn-secondary" onClick={() => remove(it.id)} style={{ padding: "4px 7px", marginLeft: 4, color: "#ef4444" }}><Trash size={11} /></button>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          )}
+        </div>
+      )}
+      
+      {modal && <ServiceModal entry={modal.entry} companies={companies} onClose={() => setModal(null)} onSaved={() => { setModal(null); load(); }} />}
+    </div>
+  );
+}
+
+function ServiceModal({ entry, companies, onClose, onSaved }) {
+  const isNew = !entry.id;
+  const [form, setForm] = useState({
+    company_id: entry.company_id || "",
+    naziv: entry.naziv || "",
+    datum: entry.datum || new Date().toISOString().slice(0, 10),
+    iznos: entry.iznos ?? 0,
+    is_paid: entry.is_paid || false,
+    datum_naplate: entry.datum_naplate || "",
+    napomena: entry.napomena || "",
+  });
+  
+  const save = async () => {
+    const payload = { ...form, iznos: Number(form.iznos) || 0 };
+    if (isNew) await api.post("/finance/services", payload);
+    else await api.patch(`/finance/services/${entry.id}`, payload);
+    onSaved();
+  };
+  
+  return (
+    <div className="modal-backdrop" onClick={onClose}>
+      <div className="modal animate-slide-up" onClick={(e) => e.stopPropagation()} style={{ maxWidth: 500 }}>
+        <div className="modal-header">
+          <div className="modal-title">{isNew ? "Nova dodatna usluga" : "Izmijeni uslugu"}</div>
+          <button onClick={onClose} style={{ border: "none", background: "transparent", padding: 6 }}><X size={18} /></button>
+        </div>
+        <div className="modal-body" style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
+          <div className="field-group" style={{ gridColumn: "1/-1" }}>
+            <label className="field-label">Firma *</label>
+            <select className="select" value={form.company_id} onChange={(e) => setForm({ ...form, company_id: e.target.value })}>
+              <option value="">— Odaberi firmu —</option>
+              {companies.map((c) => <option key={c.id} value={c.id}>{c.naziv}</option>)}
+            </select>
+          </div>
+          <div className="field-group" style={{ gridColumn: "1/-1" }}>
+            <label className="field-label">Naziv usluge *</label>
+            <input className="input" value={form.naziv} onChange={(e) => setForm({ ...form, naziv: e.target.value })} placeholder="Npr. Osnivanje DOO, Izvještaj banci..." />
+          </div>
+          <div className="field-group">
+            <label className="field-label">Datum izvršenja</label>
+            <input className="input" type="date" value={form.datum} onChange={(e) => setForm({ ...form, datum: e.target.value })} />
+          </div>
+          <div className="field-group">
+            <label className="field-label">Iznos (€) *</label>
+            <input className="input" type="number" step="0.01" value={form.iznos} onChange={(e) => setForm({ ...form, iznos: e.target.value })} />
+          </div>
+          <div className="field-group" style={{ gridColumn: "1/-1", padding: 10, background: "#f8fafc", borderRadius: 8 }}>
+            <label style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 13, fontWeight: 500 }}>
+              <input type="checkbox" checked={form.is_paid} onChange={(e) => setForm({ ...form, is_paid: e.target.checked, datum_naplate: e.target.checked && !form.datum_naplate ? new Date().toISOString().slice(0, 10) : form.datum_naplate })} style={{ width: 16, height: 16 }} />
+              Naplaćeno
+            </label>
+            {form.is_paid && (
+              <input className="input" type="date" value={form.datum_naplate} onChange={(e) => setForm({ ...form, datum_naplate: e.target.value })} style={{ marginTop: 8 }} />
+            )}
+          </div>
+          <div className="field-group" style={{ gridColumn: "1/-1" }}>
+            <label className="field-label">Napomena</label>
+            <textarea className="input" value={form.napomena} onChange={(e) => setForm({ ...form, napomena: e.target.value })} rows={2} />
+          </div>
+        </div>
+        <div className="modal-footer">
+          <button className="btn btn-secondary" onClick={onClose}>Odustani</button>
+          <button className="btn btn-primary" onClick={save}><Check size={14} /> Sačuvaj</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/* =================== TROŠKOVI =================== */
+function Troskovi() {
+  const [items, setItems] = useState([]);
+  const [services, setServices] = useState([]);
+  const [companies, setCompanies] = useState([]);
+  const [godina, setGodina] = useState(new Date().getFullYear());
+  const [filterKat, setFilterKat] = useState("");
+  const [modal, setModal] = useState(null);
+  const [loading, setLoading] = useState(true);
+  
+  const load = async () => {
+    setLoading(true);
+    const [e, s, c] = await Promise.all([
+      api.get("/finance/expenses", { params: { godina, ...(filterKat ? { kategorija: filterKat } : {}) } }),
+      services.length ? Promise.resolve({ data: services }) : api.get("/finance/services"),
+      companies.length ? Promise.resolve({ data: companies }) : api.get("/companies"),
+    ]);
+    setItems(e.data);
+    if (!services.length) setServices(s.data);
+    if (!companies.length) setCompanies(c.data);
+    setLoading(false);
+  };
+  useEffect(() => { load(); /* eslint-disable-next-line */ }, [godina, filterKat]);
+  
+  const remove = async (id) => {
+    if (!confirm("Obrisati trošak?")) return;
+    await api.delete(`/finance/expenses/${id}`);
+    load();
+  };
+  
+  const totalOpsti = items.filter((i) => i.kategorija === "opsti").reduce((a, i) => a + (Number(i.iznos) || 0), 0);
+  const totalUsluga = items.filter((i) => i.kategorija === "usluga").reduce((a, i) => a + (Number(i.iznos) || 0), 0);
+  
+  return (
+    <div>
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 12, marginBottom: 14 }}>
+        <StatCard label="Opšti troškovi" value={`${totalOpsti.toFixed(2)} €`} color="#3b82f6" icon={Receipt} />
+        <StatCard label="Troškovi za usluge" value={`${totalUsluga.toFixed(2)} €`} color="#8b5cf6" icon={Briefcase} />
+        <StatCard label="Ukupno troškova" value={`${(totalOpsti + totalUsluga).toFixed(2)} €`} color="#ef4444" icon={TrendDown} />
+      </div>
+      <div style={{ marginBottom: 14, display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
+        <select className="select" value={godina} onChange={(e) => setGodina(Number(e.target.value))} style={{ width: 110 }}>
+          {[2024, 2025, 2026, 2027].map((g) => <option key={g} value={g}>{g}</option>)}
+        </select>
+        <select className="select" value={filterKat} onChange={(e) => setFilterKat(e.target.value)} style={{ width: 180 }}>
+          <option value="">Sve kategorije</option>
+          <option value="opsti">Opšti agencijski</option>
+          <option value="usluga">Vezan za uslugu</option>
+        </select>
+        <button className="btn btn-primary" onClick={() => setModal({ entry: { datum: new Date().toISOString().slice(0, 10), kategorija: "opsti" } })} data-testid="add-expense-btn">
+          <Plus size={14} /> Dodaj trošak
+        </button>
+      </div>
+      
+      {loading ? <div style={{ padding: 40, textAlign: "center" }}><Spinner size={24} className="spin" /></div> : (
+        <div style={{ background: "white", border: "1px solid var(--border)", borderRadius: 10, overflow: "hidden" }}>
+          {items.length === 0 ? (
+            <div style={{ padding: 40, textAlign: "center", color: "var(--text-tertiary)", fontSize: 13 }}>
+              Nema troškova za {godina}. Dodaj prvi trošak.
+            </div>
+          ) : (
+            <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}>
+              <thead style={{ background: "#f8fafc" }}>
+                <tr>
+                  <th style={th}>Datum</th>
+                  <th style={th}>Naziv</th>
+                  <th style={th}>Kategorija</th>
+                  <th style={{ ...th, textAlign: "right" }}>Iznos (€)</th>
+                  <th style={th}>Napomena</th>
+                  <th style={{ ...th, textAlign: "right" }}></th>
+                </tr>
+              </thead>
+              <tbody>
+                {items.map((it) => (
+                  <tr key={it.id} style={{ borderBottom: "1px solid var(--border-light)" }}>
+                    <td style={{ ...td, fontSize: 12.5 }}>{new Date(it.datum).toLocaleDateString("sr-Latn-ME")}</td>
+                    <td style={{ ...td, fontWeight: 500 }}>{it.naziv}</td>
+                    <td style={td}>
+                      <span style={{ fontSize: 11.5, padding: "3px 8px", borderRadius: 10, fontWeight: 500, background: it.kategorija === "opsti" ? "#dbeafe" : "#f3e8ff", color: it.kategorija === "opsti" ? "#1e40af" : "#7c3aed" }}>
+                        {it.kategorija === "opsti" ? "Opšti" : "Usluga"}
+                      </span>
+                    </td>
+                    <td style={{ ...td, textAlign: "right", fontWeight: 600, color: "#ef4444" }}>-{Number(it.iznos).toFixed(2)} €</td>
+                    <td style={{ ...td, color: "var(--text-secondary)", fontSize: 12.5 }}>{it.napomena || "—"}</td>
+                    <td style={{ ...td, textAlign: "right" }}>
+                      <button className="btn btn-secondary" onClick={() => setModal({ entry: it })} style={{ padding: "4px 7px" }}><Pencil size={11} /></button>
+                      <button className="btn btn-secondary" onClick={() => remove(it.id)} style={{ padding: "4px 7px", marginLeft: 4, color: "#ef4444" }}><Trash size={11} /></button>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          )}
+        </div>
+      )}
+      
+      {modal && <ExpenseModal entry={modal.entry} services={services} companies={companies} onClose={() => setModal(null)} onSaved={() => { setModal(null); load(); }} />}
+    </div>
+  );
+}
+
+function ExpenseModal({ entry, services, companies, onClose, onSaved }) {
+  const isNew = !entry.id;
+  const [form, setForm] = useState({
+    naziv: entry.naziv || "",
+    datum: entry.datum || new Date().toISOString().slice(0, 10),
+    iznos: entry.iznos ?? 0,
+    kategorija: entry.kategorija || "opsti",
+    extra_service_id: entry.extra_service_id || "",
+    company_id: entry.company_id || "",
+    napomena: entry.napomena || "",
+  });
+  
+  const save = async () => {
+    if (!form.naziv) { alert("Naziv troška je obavezan"); return; }
+    const payload = { ...form, iznos: Number(form.iznos) || 0 };
+    if (isNew) await api.post("/finance/expenses", payload);
+    else await api.patch(`/finance/expenses/${entry.id}`, payload);
+    onSaved();
+  };
+  
+  return (
+    <div className="modal-backdrop" onClick={onClose}>
+      <div className="modal animate-slide-up" onClick={(e) => e.stopPropagation()} style={{ maxWidth: 540 }}>
+        <div className="modal-header">
+          <div className="modal-title">{isNew ? "Novi trošak" : "Izmijeni trošak"}</div>
+          <button onClick={onClose} style={{ border: "none", background: "transparent", padding: 6 }}><X size={18} /></button>
+        </div>
+        <div className="modal-body" style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
+          <div className="field-group" style={{ gridColumn: "1/-1" }}>
+            <label className="field-label">Naziv troška *</label>
+            <input className="input" value={form.naziv} onChange={(e) => setForm({ ...form, naziv: e.target.value })} placeholder="Npr. Kancelarija, Office 365..." autoFocus />
+          </div>
+          <div className="field-group">
+            <label className="field-label">Datum</label>
+            <input className="input" type="date" value={form.datum} onChange={(e) => setForm({ ...form, datum: e.target.value })} />
+          </div>
+          <div className="field-group">
+            <label className="field-label">Iznos (€) *</label>
+            <input className="input" type="number" step="0.01" value={form.iznos} onChange={(e) => setForm({ ...form, iznos: e.target.value })} />
+          </div>
+          <div className="field-group" style={{ gridColumn: "1/-1" }}>
+            <label className="field-label">Kategorija</label>
+            <div style={{ display: "flex", gap: 6 }}>
+              {[
+                { v: "opsti", l: "Opšti agencijski trošak", color: "#3b82f6" },
+                { v: "usluga", l: "Vezan za konkretnu uslugu", color: "#8b5cf6" },
+              ].map((k) => (
+                <button
+                  key={k.v}
+                  onClick={() => setForm({ ...form, kategorija: k.v })}
+                  style={{
+                    flex: 1, padding: 10, borderRadius: 8,
+                    border: `1px solid ${form.kategorija === k.v ? k.color : "var(--border)"}`,
+                    background: form.kategorija === k.v ? `${k.color}15` : "white",
+                    color: form.kategorija === k.v ? k.color : "var(--text-secondary)",
+                    cursor: "pointer", fontSize: 12.5,
+                    fontWeight: form.kategorija === k.v ? 600 : 500,
+                  }}
+                >
+                  {k.l}
+                </button>
+              ))}
+            </div>
+          </div>
+          {form.kategorija === "usluga" && (
+            <div className="field-group" style={{ gridColumn: "1/-1" }}>
+              <label className="field-label">Povezana usluga (opciono)</label>
+              <select className="select" value={form.extra_service_id} onChange={(e) => setForm({ ...form, extra_service_id: e.target.value })}>
+                <option value="">— Odaberi uslugu —</option>
+                {services.map((s) => <option key={s.id} value={s.id}>{s.naziv} ({s.company_naziv || ""})</option>)}
+              </select>
+            </div>
+          )}
+          <div className="field-group" style={{ gridColumn: "1/-1" }}>
+            <label className="field-label">Napomena</label>
+            <textarea className="input" value={form.napomena} onChange={(e) => setForm({ ...form, napomena: e.target.value })} rows={2} />
+          </div>
+        </div>
+        <div className="modal-footer">
+          <button className="btn btn-secondary" onClick={onClose}>Odustani</button>
+          <button className="btn btn-primary" onClick={save}><Check size={14} /> Sačuvaj</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/* =================== PREGLED PROFITA =================== */
+function PregledProfita() {
+  const [summary, setSummary] = useState(null);
+  const [godina, setGodina] = useState(new Date().getFullYear());
+  
+  useEffect(() => {
+    api.get("/finance/summary", { params: { godina } }).then((r) => setSummary(r.data));
+  }, [godina]);
+  
+  if (!summary) return <div style={{ padding: 40, textAlign: "center" }}><Spinner size={24} className="spin" /></div>;
+  
+  return (
+    <div>
+      <div style={{ marginBottom: 14, display: "flex", gap: 10, alignItems: "center" }}>
+        <select className="select" value={godina} onChange={(e) => setGodina(Number(e.target.value))} style={{ width: 110 }}>
+          {[2024, 2025, 2026, 2027].map((g) => <option key={g} value={g}>{g}</option>)}
+        </select>
+        <span style={{ fontSize: 13, color: "var(--text-tertiary)" }}>Pregled za {godina}. godinu</span>
+      </div>
+      
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 12, marginBottom: 20 }}>
+        <BigStat label="📥 Naplaćeni mjesečni" value={`${summary.income_monthly_paid.toFixed(2)} €`} color="#10b981" sub={`Čeka: ${summary.income_monthly_pending.toFixed(2)} €`} />
+        <BigStat label="🛠️ Naplaćene extra usluge" value={`${summary.income_extra_paid.toFixed(2)} €`} color="#3b82f6" sub={`Čeka: ${summary.income_extra_pending.toFixed(2)} €`} />
+        <BigStat label="📉 Ukupni troškovi" value={`-${summary.total_expense.toFixed(2)} €`} color="#ef4444" sub={`Opšti: ${summary.expense_opsti.toFixed(2)} € · Usluga: ${summary.expense_usluga.toFixed(2)} €`} />
+        <BigStat label="💎 ČISTI PROFIT" value={`${summary.profit_net.toFixed(2)} €`} color={summary.profit_net >= 0 ? "#10b981" : "#ef4444"} big />
+      </div>
+      
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 14, marginBottom: 20 }}>
+        <div style={{ background: "white", border: "1px solid var(--border)", borderRadius: 10, padding: 16 }}>
+          <h3 style={{ margin: "0 0 12px", fontSize: 14, fontWeight: 600 }}>📊 Profit od mjesečnih usluga</h3>
+          <div style={{ fontSize: 12.5, color: "var(--text-secondary)", marginBottom: 8 }}>Prihod naplaćen − opšti troškovi</div>
+          <div style={{ fontSize: 26, fontWeight: 700, color: summary.profit_monthly_services >= 0 ? "#10b981" : "#ef4444" }}>
+            {summary.profit_monthly_services.toFixed(2)} €
+          </div>
+        </div>
+        <div style={{ background: "white", border: "1px solid var(--border)", borderRadius: 10, padding: 16 }}>
+          <h3 style={{ margin: "0 0 12px", fontSize: 14, fontWeight: 600 }}>🛠️ Profit od extra usluga</h3>
+          <div style={{ fontSize: 12.5, color: "var(--text-secondary)", marginBottom: 8 }}>Naplaćeno za usluge − troškovi za usluge</div>
+          <div style={{ fontSize: 26, fontWeight: 700, color: summary.profit_extra_services >= 0 ? "#10b981" : "#ef4444" }}>
+            {summary.profit_extra_services.toFixed(2)} €
+          </div>
+        </div>
+      </div>
+      
+      <div style={{ background: "white", border: "1px solid var(--border)", borderRadius: 10, padding: 16 }}>
+        <h3 style={{ margin: "0 0 12px", fontSize: 14, fontWeight: 600 }}>📅 Mjesečni breakdown {godina}</h3>
+        <table style={{ width: "100%", fontSize: 12.5 }}>
+          <thead><tr style={{ background: "#f8fafc" }}>
+            <th style={{ padding: 8, textAlign: "left" }}>Mjesec</th>
+            <th style={{ padding: 8, textAlign: "right" }}>Mjesečne (€)</th>
+            <th style={{ padding: 8, textAlign: "right" }}>Extra (€)</th>
+            <th style={{ padding: 8, textAlign: "right" }}>Troškovi (€)</th>
+            <th style={{ padding: 8, textAlign: "right", fontWeight: 700 }}>Profit (€)</th>
+          </tr></thead>
+          <tbody>
+            {MJESECI.map((m, i) => {
+              const data = summary.monthly_breakdown[i + 1] || {};
+              const profit = (data.income_monthly || 0) + (data.income_extra || 0) - (data.expense || 0);
+              return (
+                <tr key={i} style={{ borderBottom: "1px solid var(--border-light)" }}>
+                  <td style={{ padding: 7 }}>{m}</td>
+                  <td style={{ padding: 7, textAlign: "right", color: "#10b981" }}>{(data.income_monthly || 0).toFixed(2)}</td>
+                  <td style={{ padding: 7, textAlign: "right", color: "#3b82f6" }}>{(data.income_extra || 0).toFixed(2)}</td>
+                  <td style={{ padding: 7, textAlign: "right", color: "#ef4444" }}>-{(data.expense || 0).toFixed(2)}</td>
+                  <td style={{ padding: 7, textAlign: "right", fontWeight: 600, color: profit >= 0 ? "#10b981" : "#ef4444" }}>{profit.toFixed(2)}</td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
+}
+
+/* =================== HELPERS =================== */
+const th = { padding: "10px 12px", textAlign: "left", fontWeight: 600, fontSize: 11.5, color: "var(--text-tertiary)", textTransform: "uppercase", letterSpacing: 0.4 };
+const td = { padding: "9px 12px" };
+
+function StatCard({ label, value, color, icon: Icon }) {
+  return (
+    <div style={{ background: "white", border: "1px solid var(--border)", borderRadius: 10, padding: "14px 16px", display: "flex", alignItems: "center", gap: 12 }}>
+      <div style={{ width: 36, height: 36, borderRadius: 8, background: `${color}15`, color, display: "flex", alignItems: "center", justifyContent: "center" }}>
+        <Icon size={18} weight="bold" />
+      </div>
+      <div>
+        <div style={{ fontSize: 11.5, color: "var(--text-tertiary)", fontWeight: 500, marginBottom: 2 }}>{label}</div>
+        <div style={{ fontSize: 18, fontWeight: 700 }}>{value}</div>
+      </div>
+    </div>
+  );
+}
+
+function BigStat({ label, value, color, sub, big }) {
+  return (
+    <div style={{ background: "white", border: `1px solid ${big ? color : "var(--border)"}`, borderRadius: 10, padding: 16, boxShadow: big ? `0 0 0 3px ${color}15` : "none" }}>
+      <div style={{ fontSize: 12, color: "var(--text-tertiary)", fontWeight: 500, marginBottom: 6 }}>{label}</div>
+      <div style={{ fontSize: big ? 26 : 20, fontWeight: 700, color }}>{value}</div>
+      {sub && <div style={{ fontSize: 11, color: "var(--text-tertiary)", marginTop: 4 }}>{sub}</div>}
+    </div>
+  );
+}

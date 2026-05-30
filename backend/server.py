@@ -2902,7 +2902,362 @@ async def search_sifre(q: Optional[str] = None, limit: int = 50, username: str =
 
 
 # ============================================================================
-# WORK LOG API — evidencija rada po firmama i kategorijama
+# FINANSIJE — Cjenovnik, mjesečne uplate, dodatne usluge, troškovi
+# ============================================================================
+
+class CompanyPricing(BaseModel):
+    company_id: str
+    monthly_fee: float = 0.0  # standardna mjesečna naknada (EUR)
+    napomena: str = ""
+
+
+class MonthlyPayment(BaseModel):
+    company_id: str
+    godina: int  # 2026
+    mjesec: int  # 1-12
+    iznos: float  # može biti drugačiji od default-a
+    is_paid: bool = False
+    datum_naplate: Optional[str] = ""  # ISO date
+    napomena: Optional[str] = ""
+
+
+class ExtraService(BaseModel):
+    company_id: str
+    naziv: str  # "Osnivanje DOO", "Izvještaj banci"...
+    datum: str  # ISO date — kada je izvršeno
+    iznos: float  # naplata
+    is_paid: bool = False
+    datum_naplate: Optional[str] = ""
+    napomena: Optional[str] = ""
+
+
+class Expense(BaseModel):
+    naziv: str  # "Kancelarija najam", "Software Microsoft Office"...
+    datum: str  # ISO date
+    iznos: float
+    kategorija: str = "opsti"  # "opsti" (opšti agencijski) / "usluga" (vezan za uslugu)
+    extra_service_id: Optional[str] = ""  # ako je vezan za extra uslugu — povezuje sa ExtraService
+    company_id: Optional[str] = ""  # ako je trošak vezan za firmu
+    napomena: Optional[str] = ""
+
+
+# === CJENOVNIK PO FIRMI ===
+
+@api_router.get("/finance/pricing")
+async def list_pricing(username: str = Depends(get_current_user)):
+    """Cjenovnik za sve firme + auto-fetch firme koje još nemaju cijenu."""
+    pricings = await db.company_pricing.find({}, {"_id": 0}).to_list(500)
+    pricing_by_cid = {p["company_id"]: p for p in pricings}
+    
+    companies = await db.companies.find({}, {"_id": 0, "id": 1, "naziv": 1, "naziv_skraceni": 1, "pib": 1}).to_list(500)
+    
+    out = []
+    for c in companies:
+        p = pricing_by_cid.get(c["id"], {})
+        out.append({
+            "company_id": c["id"],
+            "naziv": c["naziv"],
+            "naziv_skraceni": c.get("naziv_skraceni", ""),
+            "pib": c.get("pib", ""),
+            "monthly_fee": p.get("monthly_fee", 0.0),
+            "napomena": p.get("napomena", ""),
+        })
+    return out
+
+
+@api_router.put("/finance/pricing/{company_id}")
+async def set_pricing(company_id: str, req: CompanyPricing, username: str = Depends(get_current_user)):
+    rec = {
+        "company_id": company_id,
+        "monthly_fee": req.monthly_fee,
+        "napomena": req.napomena or "",
+        "updated_at": datetime.now(timezone.utc).isoformat(),
+    }
+    await db.company_pricing.update_one(
+        {"company_id": company_id},
+        {"$set": rec},
+        upsert=True,
+    )
+    return rec
+
+
+# === MJESEČNE UPLATE ===
+
+@api_router.get("/finance/payments")
+async def list_payments(
+    godina: Optional[int] = None,
+    mjesec: Optional[int] = None,
+    company_id: Optional[str] = None,
+    username: str = Depends(get_current_user),
+):
+    """Lista uplata. Ako su godina+mjesec dati — auto-generiše stavke za firme koje još nemaju zapis."""
+    query: Dict = {}
+    if godina:
+        query["godina"] = godina
+    if mjesec:
+        query["mjesec"] = mjesec
+    if company_id:
+        query["company_id"] = company_id
+    
+    existing = await db.monthly_payments.find(query, {"_id": 0}).to_list(1000)
+    
+    # Auto-merge sa firmama da bismo prikazali sve firme bez obzira da li imaju uplatu
+    if godina and mjesec:
+        # Generiraj virtuelne stavke za firme koje nemaju zapis
+        pricings = await db.company_pricing.find({}, {"_id": 0}).to_list(500)
+        pricing_by_cid = {p["company_id"]: p for p in pricings}
+        existing_cids = {p["company_id"] for p in existing}
+        companies = await db.companies.find({}, {"_id": 0, "id": 1, "naziv": 1, "naziv_skraceni": 1}).to_list(500)
+        
+        out = list(existing)
+        for c in companies:
+            if c["id"] not in existing_cids:
+                default_fee = pricing_by_cid.get(c["id"], {}).get("monthly_fee", 0.0)
+                out.append({
+                    "id": None,
+                    "company_id": c["id"],
+                    "company_naziv": c["naziv"],
+                    "godina": godina,
+                    "mjesec": mjesec,
+                    "iznos": default_fee,
+                    "is_paid": False,
+                    "datum_naplate": "",
+                    "napomena": "",
+                    "_virtual": True,
+                })
+        # Dodaj naziv za postojeće
+        co_by_cid = {c["id"]: c for c in companies}
+        for p in out:
+            if not p.get("company_naziv"):
+                co = co_by_cid.get(p["company_id"])
+                p["company_naziv"] = co["naziv"] if co else ""
+        out.sort(key=lambda x: x.get("company_naziv", ""))
+        return out
+    
+    # Dodaj naziv firme za istorijski pregled
+    cids = list({p["company_id"] for p in existing})
+    co_map = {}
+    if cids:
+        cos = await db.companies.find({"id": {"$in": cids}}, {"_id": 0, "id": 1, "naziv": 1}).to_list(500)
+        co_map = {c["id"]: c["naziv"] for c in cos}
+    for p in existing:
+        p["company_naziv"] = co_map.get(p["company_id"], "")
+    return existing
+
+
+@api_router.post("/finance/payments")
+async def upsert_payment(req: MonthlyPayment, username: str = Depends(get_current_user)):
+    """Sačuvaj/ažuriraj uplatu za firmu × godina × mjesec."""
+    query = {"company_id": req.company_id, "godina": req.godina, "mjesec": req.mjesec}
+    existing = await db.monthly_payments.find_one(query, {"_id": 0})
+    
+    rec = {
+        "company_id": req.company_id,
+        "godina": req.godina,
+        "mjesec": req.mjesec,
+        "iznos": req.iznos,
+        "is_paid": req.is_paid,
+        "datum_naplate": req.datum_naplate or "",
+        "napomena": req.napomena or "",
+        "updated_at": datetime.now(timezone.utc).isoformat(),
+    }
+    if existing:
+        await db.monthly_payments.update_one(query, {"$set": rec})
+        rec["id"] = existing.get("id")
+    else:
+        rec["id"] = str(uuid.uuid4())
+        rec["created_at"] = datetime.now(timezone.utc).isoformat()
+        await db.monthly_payments.insert_one(dict(rec))
+    return rec
+
+
+# === DODATNE USLUGE ===
+
+@api_router.get("/finance/services")
+async def list_services(
+    company_id: Optional[str] = None,
+    godina: Optional[int] = None,
+    username: str = Depends(get_current_user),
+):
+    query: Dict = {}
+    if company_id:
+        query["company_id"] = company_id
+    items = await db.extra_services.find(query, {"_id": 0}).sort("datum", -1).to_list(500)
+    
+    # Filter po godini
+    if godina:
+        items = [it for it in items if it.get("datum", "").startswith(str(godina))]
+    
+    # Dodaj naziv firme
+    cids = list({i["company_id"] for i in items if i.get("company_id")})
+    co_map = {}
+    if cids:
+        cos = await db.companies.find({"id": {"$in": cids}}, {"_id": 0, "id": 1, "naziv": 1}).to_list(500)
+        co_map = {c["id"]: c["naziv"] for c in cos}
+    for it in items:
+        it["company_naziv"] = co_map.get(it.get("company_id", ""), "")
+    return items
+
+
+@api_router.post("/finance/services")
+async def create_service(req: ExtraService, username: str = Depends(get_current_user)):
+    rec = {
+        "id": str(uuid.uuid4()),
+        "company_id": req.company_id,
+        "naziv": req.naziv,
+        "datum": req.datum,
+        "iznos": req.iznos,
+        "is_paid": req.is_paid,
+        "datum_naplate": req.datum_naplate or "",
+        "napomena": req.napomena or "",
+        "created_at": datetime.now(timezone.utc).isoformat(),
+    }
+    await db.extra_services.insert_one(dict(rec))
+    return rec
+
+
+@api_router.patch("/finance/services/{sid}")
+async def update_service(sid: str, req: ExtraService, username: str = Depends(get_current_user)):
+    updates = {
+        "company_id": req.company_id,
+        "naziv": req.naziv,
+        "datum": req.datum,
+        "iznos": req.iznos,
+        "is_paid": req.is_paid,
+        "datum_naplate": req.datum_naplate or "",
+        "napomena": req.napomena or "",
+    }
+    await db.extra_services.update_one({"id": sid}, {"$set": updates})
+    return updates
+
+
+@api_router.delete("/finance/services/{sid}")
+async def delete_service(sid: str, username: str = Depends(get_current_user)):
+    await db.extra_services.delete_one({"id": sid})
+    return {"success": True}
+
+
+# === TROŠKOVI ===
+
+@api_router.get("/finance/expenses")
+async def list_expenses(
+    kategorija: Optional[str] = None,
+    godina: Optional[int] = None,
+    company_id: Optional[str] = None,
+    extra_service_id: Optional[str] = None,
+    username: str = Depends(get_current_user),
+):
+    query: Dict = {}
+    if kategorija:
+        query["kategorija"] = kategorija
+    if company_id:
+        query["company_id"] = company_id
+    if extra_service_id:
+        query["extra_service_id"] = extra_service_id
+    items = await db.expenses.find(query, {"_id": 0}).sort("datum", -1).to_list(1000)
+    if godina:
+        items = [it for it in items if it.get("datum", "").startswith(str(godina))]
+    return items
+
+
+@api_router.post("/finance/expenses")
+async def create_expense(req: Expense, username: str = Depends(get_current_user)):
+    rec = {
+        "id": str(uuid.uuid4()),
+        "naziv": req.naziv,
+        "datum": req.datum,
+        "iznos": req.iznos,
+        "kategorija": req.kategorija,
+        "extra_service_id": req.extra_service_id or "",
+        "company_id": req.company_id or "",
+        "napomena": req.napomena or "",
+        "created_at": datetime.now(timezone.utc).isoformat(),
+    }
+    await db.expenses.insert_one(dict(rec))
+    return rec
+
+
+@api_router.patch("/finance/expenses/{eid}")
+async def update_expense(eid: str, req: Expense, username: str = Depends(get_current_user)):
+    updates = {
+        "naziv": req.naziv,
+        "datum": req.datum,
+        "iznos": req.iznos,
+        "kategorija": req.kategorija,
+        "extra_service_id": req.extra_service_id or "",
+        "company_id": req.company_id or "",
+        "napomena": req.napomena or "",
+    }
+    await db.expenses.update_one({"id": eid}, {"$set": updates})
+    return updates
+
+
+@api_router.delete("/finance/expenses/{eid}")
+async def delete_expense(eid: str, username: str = Depends(get_current_user)):
+    await db.expenses.delete_one({"id": eid})
+    return {"success": True}
+
+
+# === PROFIT SUMMARY ===
+
+@api_router.get("/finance/summary")
+async def finance_summary(godina: int = None, username: str = Depends(get_current_user)):
+    """Sažetak prihoda i rashoda za godinu."""
+    if not godina:
+        godina = datetime.now(timezone.utc).year
+    
+    # Prihodi mjesečnih naknada
+    payments = await db.monthly_payments.find({"godina": godina, "is_paid": True}, {"_id": 0}).to_list(2000)
+    income_monthly = sum(p.get("iznos", 0) for p in payments)
+    income_monthly_pending = sum(p.get("iznos", 0) for p in await db.monthly_payments.find({"godina": godina, "is_paid": False}, {"_id": 0}).to_list(2000))
+    
+    # Prihodi extra usluga
+    services = await db.extra_services.find({"is_paid": True}, {"_id": 0}).to_list(2000)
+    services = [s for s in services if s.get("datum", "").startswith(str(godina))]
+    income_extra = sum(s.get("iznos", 0) for s in services)
+    
+    services_pending = await db.extra_services.find({"is_paid": False}, {"_id": 0}).to_list(2000)
+    services_pending = [s for s in services_pending if s.get("datum", "").startswith(str(godina))]
+    income_extra_pending = sum(s.get("iznos", 0) for s in services_pending)
+    
+    # Troškovi
+    expenses = await db.expenses.find({}, {"_id": 0}).to_list(2000)
+    expenses_year = [e for e in expenses if e.get("datum", "").startswith(str(godina))]
+    expense_opsti = sum(e.get("iznos", 0) for e in expenses_year if e.get("kategorija") == "opsti")
+    expense_usluga = sum(e.get("iznos", 0) for e in expenses_year if e.get("kategorija") == "usluga")
+    
+    total_income = income_monthly + income_extra
+    total_expense = expense_opsti + expense_usluga
+    profit_net = total_income - total_expense
+    profit_extra = income_extra - expense_usluga
+    profit_monthly = income_monthly - expense_opsti
+    
+    # Po mjesecima
+    monthly_breakdown = {}
+    for m in range(1, 13):
+        monthly_breakdown[m] = {
+            "income_monthly": sum(p.get("iznos", 0) for p in payments if p.get("mjesec") == m),
+            "income_extra": sum(s.get("iznos", 0) for s in services if s.get("datum", "").startswith(f"{godina}-{m:02d}")),
+            "expense": sum(e.get("iznos", 0) for e in expenses_year if e.get("datum", "").startswith(f"{godina}-{m:02d}")),
+        }
+    
+    return {
+        "godina": godina,
+        "income_monthly_paid": income_monthly,
+        "income_monthly_pending": income_monthly_pending,
+        "income_extra_paid": income_extra,
+        "income_extra_pending": income_extra_pending,
+        "total_income": total_income,
+        "expense_opsti": expense_opsti,
+        "expense_usluga": expense_usluga,
+        "total_expense": total_expense,
+        "profit_net": profit_net,
+        "profit_monthly_services": profit_monthly,
+        "profit_extra_services": profit_extra,
+        "monthly_breakdown": monthly_breakdown,
+    }
+
+
 # ============================================================================
 
 @api_router.get("/work-logs")
