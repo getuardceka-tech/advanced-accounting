@@ -2,7 +2,8 @@ import { useEffect, useMemo, useState } from "react";
 import {
   CurrencyEur, Plus, MagnifyingGlass, X, Check, Spinner,
   Trash, Pencil, Receipt, TrendUp, TrendDown,
-  CheckCircle, Clock, Calendar, Briefcase, Wallet
+  CheckCircle, Clock, Calendar, Briefcase, Wallet,
+  Warning, DownloadSimple, FileXls, FilePdf,
 } from "@phosphor-icons/react";
 import api from "@/lib/api";
 
@@ -10,6 +11,11 @@ const MJESECI = ["Januar", "Februar", "Mart", "April", "Maj", "Jun", "Jul", "Avg
 
 export default function Finansije() {
   const [tab, setTab] = useState("naknade");
+  const [overdueCount, setOverdueCount] = useState(0);
+  
+  useEffect(() => {
+    api.get("/finance/overdue").then((r) => setOverdueCount(r.data.length)).catch(() => {});
+  }, [tab]);
   
   return (
     <div data-testid="finansije-page">
@@ -25,10 +31,11 @@ export default function Finansije() {
       {/* Tabs */}
       <div style={{ display: "flex", gap: 4, marginBottom: 20, background: "white", padding: 5, borderRadius: 10, border: "1px solid var(--border)", width: "fit-content" }}>
         {[
-          { v: "naknade", l: "💰 Mjesečne naknade", icon: CurrencyEur },
-          { v: "usluge", l: "🛠️ Dodatne usluge", icon: Briefcase },
-          { v: "troskovi", l: "📉 Troškovi", icon: Wallet },
-          { v: "pregled", l: "📊 Pregled profita", icon: TrendUp },
+          { v: "naknade", l: "💰 Mjesečne naknade" },
+          { v: "alarmi", l: "⚠️ Alarmi", badge: overdueCount },
+          { v: "usluge", l: "🛠️ Dodatne usluge" },
+          { v: "troskovi", l: "📉 Troškovi" },
+          { v: "pregled", l: "📊 Pregled profita" },
         ].map((t) => (
           <button
             key={t.v}
@@ -44,14 +51,21 @@ export default function Finansije() {
               fontSize: 13,
               fontWeight: tab === t.v ? 600 : 500,
               transition: "all 0.15s",
+              display: "flex", alignItems: "center", gap: 6,
             }}
           >
             {t.l}
+            {t.badge > 0 && (
+              <span style={{ background: tab === t.v ? "rgba(255,255,255,0.25)" : "#ef4444", color: "white", padding: "1px 7px", borderRadius: 10, fontSize: 11, fontWeight: 700 }}>
+                {t.badge}
+              </span>
+            )}
           </button>
         ))}
       </div>
       
       {tab === "naknade" && <MjesecneNaknade />}
+      {tab === "alarmi" && <AlarmiNeplacenih onChanged={() => api.get("/finance/overdue").then((r) => setOverdueCount(r.data.length))} />}
       {tab === "usluge" && <DodatneUsluge />}
       {tab === "troskovi" && <Troskovi />}
       {tab === "pregled" && <PregledProfita />}
@@ -147,9 +161,16 @@ function MjesecneNaknade() {
               </tr>
             </thead>
             <tbody>
-              {filtered.map((it) => (
-                <tr key={it.company_id} style={{ borderBottom: "1px solid var(--border-light)", background: it.is_paid ? "#f0fdf4" : "white" }} data-testid={`payment-row-${it.company_id}`}>
-                  <td style={{ ...td, fontWeight: 500 }}>{it.company_naziv}</td>
+              {filtered.map((it) => {
+                const now = new Date();
+                const isPastMonth = (it.godina < now.getFullYear()) || (it.godina === now.getFullYear() && it.mjesec < now.getMonth() + 1);
+                const isOverdue = !it.is_paid && isPastMonth && (Number(it.iznos) || 0) > 0;
+                return (
+                <tr key={it.company_id} style={{ borderBottom: "1px solid var(--border-light)", background: it.is_paid ? "#f0fdf4" : (isOverdue ? "#fef2f2" : "white") }} data-testid={`payment-row-${it.company_id}`}>
+                  <td style={{ ...td, fontWeight: 500 }}>
+                    {isOverdue && <Warning size={13} weight="fill" style={{ color: "#ef4444", marginRight: 6, verticalAlign: "middle" }} />}
+                    {it.company_naziv}
+                  </td>
                   <td style={td}>
                     <input
                       className="input"
@@ -194,7 +215,8 @@ function MjesecneNaknade() {
                     />
                   </td>
                 </tr>
-              ))}
+                );
+              })}
             </tbody>
           </table>
         </div>
@@ -599,20 +621,45 @@ function ExpenseModal({ entry, services, companies, onClose, onSaved }) {
 function PregledProfita() {
   const [summary, setSummary] = useState(null);
   const [godina, setGodina] = useState(new Date().getFullYear());
+  const [exporting, setExporting] = useState("");
   
   useEffect(() => {
     api.get("/finance/summary", { params: { godina } }).then((r) => setSummary(r.data));
   }, [godina]);
   
+  const downloadExport = async (kind) => {
+    setExporting(kind);
+    try {
+      const res = await api.get(`/finance/export/${kind}`, { params: { godina }, responseType: "blob" });
+      const url = window.URL.createObjectURL(new Blob([res.data]));
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = kind === "excel" ? `Finansije_${godina}.xlsx` : `Finansijski_izvjestaj_${godina}.pdf`;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      window.URL.revokeObjectURL(url);
+    } catch (err) {
+      alert("Greška pri exportu: " + (err.response?.data?.detail || err.message));
+    } finally { setExporting(""); }
+  };
+  
   if (!summary) return <div style={{ padding: 40, textAlign: "center" }}><Spinner size={24} className="spin" /></div>;
   
   return (
     <div>
-      <div style={{ marginBottom: 14, display: "flex", gap: 10, alignItems: "center" }}>
+      <div style={{ marginBottom: 14, display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
         <select className="select" value={godina} onChange={(e) => setGodina(Number(e.target.value))} style={{ width: 110 }}>
           {[2024, 2025, 2026, 2027].map((g) => <option key={g} value={g}>{g}</option>)}
         </select>
         <span style={{ fontSize: 13, color: "var(--text-tertiary)" }}>Pregled za {godina}. godinu</span>
+        <div style={{ flex: 1 }} />
+        <button className="btn btn-secondary" onClick={() => downloadExport("excel")} disabled={exporting === "excel"} data-testid="export-excel-btn">
+          {exporting === "excel" ? <Spinner size={14} className="spin" /> : <FileXls size={15} />} Excel
+        </button>
+        <button className="btn btn-secondary" onClick={() => downloadExport("pdf")} disabled={exporting === "pdf"} data-testid="export-pdf-btn">
+          {exporting === "pdf" ? <Spinner size={14} className="spin" /> : <FilePdf size={15} />} PDF
+        </button>
       </div>
       
       <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 12, marginBottom: 20 }}>
@@ -673,6 +720,107 @@ function PregledProfita() {
 /* =================== HELPERS =================== */
 const th = { padding: "10px 12px", textAlign: "left", fontWeight: 600, fontSize: 11.5, color: "var(--text-tertiary)", textTransform: "uppercase", letterSpacing: 0.4 };
 const td = { padding: "9px 12px" };
+
+/* =================== ALARMI NEPLAĆENIH =================== */
+function AlarmiNeplacenih({ onChanged }) {
+  const [items, setItems] = useState([]);
+  const [days, setDays] = useState(30);
+  const [loading, setLoading] = useState(true);
+  
+  const load = async () => {
+    setLoading(true);
+    const r = await api.get("/finance/overdue", { params: { days } });
+    setItems(r.data);
+    setLoading(false);
+  };
+  useEffect(() => { load(); /* eslint-disable-next-line */ }, [days]);
+  
+  const markPaid = async (it, mjData) => {
+    if (!confirm(`Označi kao plaćeno: ${it.naziv} — ${MJESECI[mjData.mjesec - 1]} ${mjData.godina}?`)) return;
+    await api.post("/finance/payments", {
+      company_id: it.company_id,
+      godina: mjData.godina,
+      mjesec: mjData.mjesec,
+      iznos: it.monthly_fee,
+      is_paid: true,
+      datum_naplate: new Date().toISOString().slice(0, 10),
+      napomena: "",
+    });
+    await load();
+    if (onChanged) onChanged();
+  };
+  
+  const totalOwed = items.reduce((a, i) => a + (Number(i.total_owed) || 0), 0);
+  const totalMonths = items.reduce((a, i) => a + (i.overdue_months?.length || 0), 0);
+  
+  return (
+    <div>
+      <div style={{ background: "linear-gradient(135deg, #fef2f2 0%, #fff7ed 100%)", border: "1px solid #fecaca", borderRadius: 10, padding: 16, marginBottom: 14, display: "flex", alignItems: "center", gap: 14 }}>
+        <Warning size={32} weight="fill" color="#ef4444" />
+        <div style={{ flex: 1 }}>
+          <div style={{ fontSize: 15, fontWeight: 700, color: "#991b1b", marginBottom: 2 }}>
+            {items.length === 0 ? "Sve firme su plaćene." : `${items.length} ${items.length === 1 ? "firma duguje" : "firmi duguje"}`}
+          </div>
+          <div style={{ fontSize: 12.5, color: "#7f1d1d" }}>
+            {items.length > 0 && (
+              <>Ukupno dugovanje: <b>{totalOwed.toFixed(2)} €</b> · {totalMonths} neplaćenih mjeseci · grace period: {days} dana</>
+            )}
+          </div>
+        </div>
+        <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+          <span style={{ fontSize: 12, color: "#7f1d1d", fontWeight: 500 }}>Grace period:</span>
+          <select className="select" value={days} onChange={(e) => setDays(Number(e.target.value))} style={{ width: 110 }} data-testid="grace-period">
+            <option value={0}>0 dana</option>
+            <option value={15}>15 dana</option>
+            <option value={30}>30 dana</option>
+            <option value={60}>60 dana</option>
+            <option value={90}>90 dana</option>
+          </select>
+        </div>
+      </div>
+      
+      {loading ? <div style={{ padding: 40, textAlign: "center" }}><Spinner size={24} className="spin" /></div> : items.length === 0 ? (
+        <div style={{ background: "white", border: "1px solid var(--border)", borderRadius: 10, padding: 60, textAlign: "center", color: "var(--text-secondary)" }}>
+          <CheckCircle size={48} weight="duotone" color="#10b981" style={{ marginBottom: 12 }} />
+          <div style={{ fontSize: 15, fontWeight: 600, marginBottom: 4 }}>Nema dugovanja</div>
+          <div style={{ fontSize: 13, color: "var(--text-tertiary)" }}>Sve firme su uredno platile mjesečne naknade u zadanom roku.</div>
+        </div>
+      ) : (
+        <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+          {items.map((it) => (
+            <div key={it.company_id} style={{ background: "white", border: "1px solid var(--border)", borderLeft: "4px solid #ef4444", borderRadius: 10, padding: 14 }} data-testid={`overdue-${it.company_id}`}>
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 10 }}>
+                <div>
+                  <div style={{ fontSize: 14, fontWeight: 700, color: "var(--text-primary)" }}>{it.naziv}</div>
+                  <div style={{ fontSize: 12, color: "var(--text-tertiary)", marginTop: 2 }}>
+                    Mjesečna naknada: <b>{Number(it.monthly_fee).toFixed(2)} €</b> · Najstarije: <b>{it.oldest_due}</b>
+                  </div>
+                </div>
+                <div style={{ textAlign: "right" }}>
+                  <div style={{ fontSize: 18, fontWeight: 700, color: "#ef4444" }}>{Number(it.total_owed).toFixed(2)} €</div>
+                  <div style={{ fontSize: 11, color: "var(--text-tertiary)" }}>{it.overdue_months.length} mjeseci</div>
+                </div>
+              </div>
+              <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
+                {it.overdue_months.map((mj, i) => (
+                  <button
+                    key={i}
+                    onClick={() => markPaid(it, mj)}
+                    style={{ display: "inline-flex", alignItems: "center", gap: 5, padding: "4px 9px", background: "#fef2f2", border: "1px solid #fecaca", color: "#991b1b", borderRadius: 6, fontSize: 11.5, fontWeight: 500, cursor: "pointer" }}
+                    title="Klikni da označiš kao plaćeno"
+                  >
+                    <Calendar size={11} /> {MJESECI[mj.mjesec - 1]} {mj.godina}
+                    <Check size={11} style={{ opacity: 0.5 }} />
+                  </button>
+                ))}
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
 
 function StatCard({ label, value, color, icon: Icon }) {
   return (

@@ -115,3 +115,9 @@ Korisnik Getuard Cekoviq iz Ulcinja, Crna Gora, vlasnik računovodstvene agencij
   - **X za "početak"/"promjena"** trgovine: pomjereno na lbl.x1+12, mali font 12pt — tačno na crtici ___.
   - **X za "promjena"** zanatstva: pomjereno desno na kraj bilingual "fletëparaqitja 2)" labele.
   - 43/43 testova prolaze.
+- **30.05.2026 (Finansije modul)**: **Kompletan finansijski modul** za praćenje prihoda i rashoda agencije.
+  - **Backend**: `/api/finance/pricing` (cjenovnik po firmi), `/api/finance/payments` (mjesečne uplate sa auto-merge svih firmi za izabrani mjesec), `/api/finance/services` (dodatne usluge CRUD), `/api/finance/expenses` (troškovi CRUD), `/api/finance/summary` (profit kalkulacija sa mjesečnim breakdown-om), `/api/finance/overdue` (alarmi za neplaćene > X dana), `/api/finance/export/excel` (4-sheet xlsx: uplate, usluge, troškovi, sažetak), `/api/finance/export/pdf` (reportlab PDF sa sažetkom i mjesečnim pregledom).
+  - **Frontend** (`Finansije.jsx`): 5 tabova — **Mjesečne naknade** (lista svih firmi za izabrani mjesec sa quick-edit iznosa/checkbox/datum/napomena, cjenovnik panel, visual red overdue indicator), **Alarmi** (lista firmi sa neplaćenim mjesecima, ukupno dugovanje, klikabilni mjesec-chip-ovi za quick mark-paid, podesiv grace period 0/15/30/60/90 dana, badge counter na tabu), **Dodatne usluge** (CRUD modal sa firmom + datum + iznos + paid status), **Troškovi** (CRUD modal sa kategorijama opšti/usluga, povezivanje sa extra service), **Pregled profita** (4 stat kartice + 2 profit breakdown kartice + 12-mjesečna tabela + Excel/PDF export dugmad).
+  - **DB kolekcije**: `company_pricing`, `monthly_payments`, `extra_services`, `expenses`.
+  - **Sidebar**: Dodat "Finansije" link sa € ikonom kao top-level. Route `/finansije`.
+  - Backend testiran kroz curl (CRUD, exports valid xlsx+pdf, overdue logika ispravna).

@@ -3258,6 +3258,309 @@ async def finance_summary(godina: int = None, username: str = Depends(get_curren
     }
 
 
+# === ALARMI ZA NEPLAĆENE RAČUNE ===
+
+@api_router.get("/finance/overdue")
+async def list_overdue(days: int = 30, username: str = Depends(get_current_user)):
+    """Lista firmi sa neplaćenim mjesečnim naknadama starijim od X dana.
+    Računa se: za svaki mjesec prošle/tekuće godine, ako je rok prošao i firma nije platila."""
+    today = datetime.now(timezone.utc)
+    # Cjenovnik
+    pricings = await db.company_pricing.find({"monthly_fee": {"$gt": 0}}, {"_id": 0}).to_list(500)
+    pricing_by_cid = {p["company_id"]: p for p in pricings}
+    if not pricing_by_cid:
+        return []
+    
+    # Postojeće uplate
+    payments = await db.monthly_payments.find({}, {"_id": 0}).to_list(5000)
+    paid_keys = {(p["company_id"], p["godina"], p["mjesec"]) for p in payments if p.get("is_paid")}
+    
+    # Firme — naziv
+    companies = await db.companies.find({"id": {"$in": list(pricing_by_cid.keys())}}, {"_id": 0, "id": 1, "naziv": 1}).to_list(500)
+    co_by_cid = {c["id"]: c["naziv"] for c in companies}
+    
+    # Generiši listu neplaćenih mjeseci u zadnjih `days` (sve neplaćene mjesece od prije više od `days` dana)
+    out: Dict[str, Dict] = {}
+    # iteriraj zadnjih 24 mjeseca
+    cur = today
+    for _ in range(24):
+        mjesec = cur.month
+        godina = cur.year
+        # Rok = kraj mjeseca + days dana grace
+        # Smatra se overdue ako je prošlo > days od kraja mjeseca
+        try:
+            end_of_month = datetime(godina, mjesec + 1, 1, tzinfo=timezone.utc) if mjesec < 12 else datetime(godina + 1, 1, 1, tzinfo=timezone.utc)
+        except Exception:
+            end_of_month = today
+        overdue_threshold = end_of_month + timedelta(days=days)
+        if today < overdue_threshold:
+            # mjesec još nije overdue
+            cur = (cur.replace(day=1) - timedelta(days=1))
+            continue
+        for cid, p in pricing_by_cid.items():
+            if (cid, godina, mjesec) in paid_keys:
+                continue
+            entry = out.setdefault(cid, {
+                "company_id": cid,
+                "naziv": co_by_cid.get(cid, ""),
+                "monthly_fee": p.get("monthly_fee", 0.0),
+                "overdue_months": [],
+                "total_owed": 0.0,
+                "oldest_due": None,
+            })
+            entry["overdue_months"].append({"godina": godina, "mjesec": mjesec})
+            entry["total_owed"] += p.get("monthly_fee", 0.0)
+            due_str = f"{godina}-{mjesec:02d}"
+            if not entry["oldest_due"] or due_str < entry["oldest_due"]:
+                entry["oldest_due"] = due_str
+        # prošli mjesec
+        cur = (cur.replace(day=1) - timedelta(days=1))
+    
+    result = list(out.values())
+    # Sortiraj po najstarijem dugovanju
+    result.sort(key=lambda x: x["oldest_due"] or "9999")
+    # Filtriraj firme bez dugovanja (može se desiti)
+    result = [r for r in result if r["overdue_months"]]
+    return result
+
+
+# === EXPORT (Excel + PDF) ===
+
+def _month_name(m: int) -> str:
+    return ["", "Januar", "Februar", "Mart", "April", "Maj", "Jun", "Jul", "Avgust", "Septembar", "Oktobar", "Novembar", "Decembar"][m]
+
+
+@api_router.get("/finance/export/excel")
+async def export_finance_excel(godina: int = None, username: str = Depends(get_current_user)):
+    """Izvoz svih finansijskih podataka u Excel sa više listova."""
+    import io
+    from openpyxl import Workbook
+    from openpyxl.styles import Font, PatternFill, Alignment
+    from fastapi.responses import StreamingResponse
+    
+    if not godina:
+        godina = datetime.now(timezone.utc).year
+    
+    wb = Workbook()
+    header_font = Font(bold=True, color="FFFFFF")
+    header_fill = PatternFill("solid", fgColor="1e40af")
+    
+    # === Sheet 1: Mjesečne uplate ===
+    ws1 = wb.active
+    ws1.title = "Mjesečne uplate"
+    headers = ["Firma", "Godina", "Mjesec", "Iznos (€)", "Naplaćeno", "Datum naplate", "Napomena"]
+    ws1.append(headers)
+    for cell in ws1[1]:
+        cell.font = header_font
+        cell.fill = header_fill
+    
+    payments = await db.monthly_payments.find({"godina": godina}, {"_id": 0}).to_list(5000)
+    cids = list({p["company_id"] for p in payments})
+    cos = await db.companies.find({"id": {"$in": cids}}, {"_id": 0, "id": 1, "naziv": 1}).to_list(500)
+    co_map = {c["id"]: c["naziv"] for c in cos}
+    for p in sorted(payments, key=lambda x: (co_map.get(x["company_id"], ""), x["mjesec"])):
+        ws1.append([
+            co_map.get(p["company_id"], p["company_id"]),
+            p.get("godina"),
+            _month_name(p.get("mjesec", 0)),
+            p.get("iznos", 0),
+            "DA" if p.get("is_paid") else "NE",
+            p.get("datum_naplate", ""),
+            p.get("napomena", ""),
+        ])
+    for col in ws1.columns:
+        ws1.column_dimensions[col[0].column_letter].width = 22
+    
+    # === Sheet 2: Dodatne usluge ===
+    ws2 = wb.create_sheet("Dodatne usluge")
+    ws2.append(["Datum", "Firma", "Naziv usluge", "Iznos (€)", "Naplaćeno", "Datum naplate", "Napomena"])
+    for cell in ws2[1]:
+        cell.font = header_font
+        cell.fill = header_fill
+    services = await db.extra_services.find({}, {"_id": 0}).to_list(2000)
+    services = [s for s in services if s.get("datum", "").startswith(str(godina))]
+    for s in sorted(services, key=lambda x: x.get("datum", "")):
+        ws2.append([
+            s.get("datum", ""),
+            co_map.get(s.get("company_id", ""), s.get("company_id", "")),
+            s.get("naziv", ""),
+            s.get("iznos", 0),
+            "DA" if s.get("is_paid") else "NE",
+            s.get("datum_naplate", ""),
+            s.get("napomena", ""),
+        ])
+    for col in ws2.columns:
+        ws2.column_dimensions[col[0].column_letter].width = 22
+    
+    # === Sheet 3: Troškovi ===
+    ws3 = wb.create_sheet("Troškovi")
+    ws3.append(["Datum", "Naziv", "Kategorija", "Iznos (€)", "Napomena"])
+    for cell in ws3[1]:
+        cell.font = header_font
+        cell.fill = header_fill
+    expenses = await db.expenses.find({}, {"_id": 0}).to_list(2000)
+    expenses = [e for e in expenses if e.get("datum", "").startswith(str(godina))]
+    for e in sorted(expenses, key=lambda x: x.get("datum", "")):
+        ws3.append([
+            e.get("datum", ""),
+            e.get("naziv", ""),
+            "Opšti" if e.get("kategorija") == "opsti" else "Vezan za uslugu",
+            e.get("iznos", 0),
+            e.get("napomena", ""),
+        ])
+    for col in ws3.columns:
+        ws3.column_dimensions[col[0].column_letter].width = 22
+    
+    # === Sheet 4: Sažetak ===
+    ws4 = wb.create_sheet("Sažetak profita")
+    ws4.append([f"FINANSIJSKI IZVJEŠTAJ — {godina}"])
+    ws4["A1"].font = Font(bold=True, size=14)
+    ws4.append([])
+    
+    income_monthly_paid = sum(p.get("iznos", 0) for p in payments if p.get("is_paid"))
+    income_monthly_pending = sum(p.get("iznos", 0) for p in payments if not p.get("is_paid"))
+    income_extra_paid = sum(s.get("iznos", 0) for s in services if s.get("is_paid"))
+    income_extra_pending = sum(s.get("iznos", 0) for s in services if not s.get("is_paid"))
+    expense_opsti = sum(e.get("iznos", 0) for e in expenses if e.get("kategorija") == "opsti")
+    expense_usluga = sum(e.get("iznos", 0) for e in expenses if e.get("kategorija") == "usluga")
+    profit_net = income_monthly_paid + income_extra_paid - expense_opsti - expense_usluga
+    
+    ws4.append(["Naplaćeni mjesečni prihodi", f"{income_monthly_paid:.2f} €"])
+    ws4.append(["Čeka uplatu (mjesečno)", f"{income_monthly_pending:.2f} €"])
+    ws4.append(["Naplaćene dodatne usluge", f"{income_extra_paid:.2f} €"])
+    ws4.append(["Čeka uplatu (extra)", f"{income_extra_pending:.2f} €"])
+    ws4.append(["Opšti troškovi", f"-{expense_opsti:.2f} €"])
+    ws4.append(["Troškovi za usluge", f"-{expense_usluga:.2f} €"])
+    ws4.append([])
+    ws4.append(["ČISTI PROFIT", f"{profit_net:.2f} €"])
+    ws4["A10"].font = Font(bold=True, size=12)
+    ws4["B10"].font = Font(bold=True, size=12, color="10b981" if profit_net >= 0 else "ef4444")
+    
+    ws4.append([])
+    ws4.append(["Mjesec", "Mjesečne (€)", "Extra (€)", "Troškovi (€)", "Profit (€)"])
+    for cell in ws4[12]:
+        cell.font = header_font
+        cell.fill = header_fill
+    for m in range(1, 13):
+        income_m = sum(p.get("iznos", 0) for p in payments if p.get("is_paid") and p.get("mjesec") == m)
+        extra_m = sum(s.get("iznos", 0) for s in services if s.get("is_paid") and s.get("datum", "").startswith(f"{godina}-{m:02d}"))
+        exp_m = sum(e.get("iznos", 0) for e in expenses if e.get("datum", "").startswith(f"{godina}-{m:02d}"))
+        ws4.append([_month_name(m), income_m, extra_m, -exp_m, income_m + extra_m - exp_m])
+    
+    for col in ws4.columns:
+        ws4.column_dimensions[col[0].column_letter].width = 25
+    
+    buf = io.BytesIO()
+    wb.save(buf)
+    buf.seek(0)
+    fname = f"Finansije_{godina}.xlsx"
+    return StreamingResponse(
+        buf,
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={"Content-Disposition": f'attachment; filename="{fname}"'},
+    )
+
+
+@api_router.get("/finance/export/pdf")
+async def export_finance_pdf(godina: int = None, username: str = Depends(get_current_user)):
+    """Izvoz finansijskog izvještaja u PDF (sažetak + mjesečni breakdown)."""
+    import io
+    from reportlab.lib.pagesizes import A4
+    from reportlab.lib import colors
+    from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
+    from reportlab.lib.units import cm
+    from reportlab.platypus import SimpleDocTemplate, Table, TableStyle, Paragraph, Spacer
+    from fastapi.responses import StreamingResponse
+    
+    if not godina:
+        godina = datetime.now(timezone.utc).year
+    
+    # Učitaj podatke (slično kao u summary)
+    payments = await db.monthly_payments.find({"godina": godina}, {"_id": 0}).to_list(5000)
+    services = await db.extra_services.find({}, {"_id": 0}).to_list(2000)
+    services = [s for s in services if s.get("datum", "").startswith(str(godina))]
+    expenses = await db.expenses.find({}, {"_id": 0}).to_list(2000)
+    expenses = [e for e in expenses if e.get("datum", "").startswith(str(godina))]
+    
+    income_monthly_paid = sum(p.get("iznos", 0) for p in payments if p.get("is_paid"))
+    income_monthly_pending = sum(p.get("iznos", 0) for p in payments if not p.get("is_paid"))
+    income_extra_paid = sum(s.get("iznos", 0) for s in services if s.get("is_paid"))
+    income_extra_pending = sum(s.get("iznos", 0) for s in services if not s.get("is_paid"))
+    expense_opsti = sum(e.get("iznos", 0) for e in expenses if e.get("kategorija") == "opsti")
+    expense_usluga = sum(e.get("iznos", 0) for e in expenses if e.get("kategorija") == "usluga")
+    profit_net = income_monthly_paid + income_extra_paid - expense_opsti - expense_usluga
+    
+    buf = io.BytesIO()
+    doc = SimpleDocTemplate(buf, pagesize=A4, rightMargin=2*cm, leftMargin=2*cm, topMargin=2*cm, bottomMargin=2*cm)
+    styles = getSampleStyleSheet()
+    title_style = ParagraphStyle("title", parent=styles["Heading1"], fontSize=18, alignment=1, spaceAfter=6)
+    sub_style = ParagraphStyle("sub", parent=styles["Normal"], fontSize=10, alignment=1, textColor=colors.grey, spaceAfter=18)
+    h2 = ParagraphStyle("h2", parent=styles["Heading2"], fontSize=13, spaceBefore=12, spaceAfter=8, textColor=colors.HexColor("#1e40af"))
+    
+    elements = []
+    elements.append(Paragraph(f"Finansijski izvještaj — {godina}", title_style))
+    elements.append(Paragraph(f"Advanced Accounting · Generisano: {datetime.now().strftime('%d.%m.%Y. %H:%M')}", sub_style))
+    
+    elements.append(Paragraph("Sažetak", h2))
+    summary_data = [
+        ["Stavka", "Iznos (EUR)"],
+        ["Naplaćeni mjesečni prihodi", f"{income_monthly_paid:.2f}"],
+        ["Čeka uplatu (mjesečno)", f"{income_monthly_pending:.2f}"],
+        ["Naplaćene dodatne usluge", f"{income_extra_paid:.2f}"],
+        ["Čeka uplatu (extra)", f"{income_extra_pending:.2f}"],
+        ["Opšti troškovi", f"-{expense_opsti:.2f}"],
+        ["Troškovi za usluge", f"-{expense_usluga:.2f}"],
+        ["ČISTI PROFIT", f"{profit_net:.2f}"],
+    ]
+    t = Table(summary_data, colWidths=[10*cm, 5*cm])
+    t.setStyle(TableStyle([
+        ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#1e40af")),
+        ("TEXTCOLOR", (0, 0), (-1, 0), colors.white),
+        ("FONTNAME", (0, 0), (-1, 0), "Helvetica-Bold"),
+        ("FONTNAME", (0, -1), (-1, -1), "Helvetica-Bold"),
+        ("BACKGROUND", (0, -1), (-1, -1), colors.HexColor("#dcfce7") if profit_net >= 0 else colors.HexColor("#fee2e2")),
+        ("ALIGN", (1, 0), (1, -1), "RIGHT"),
+        ("GRID", (0, 0), (-1, -1), 0.5, colors.grey),
+        ("FONTSIZE", (0, 0), (-1, -1), 10),
+        ("ROWBACKGROUNDS", (0, 1), (-1, -2), [colors.white, colors.HexColor("#f8fafc")]),
+        ("BOTTOMPADDING", (0, 0), (-1, -1), 6),
+        ("TOPPADDING", (0, 0), (-1, -1), 6),
+    ]))
+    elements.append(t)
+    
+    elements.append(Paragraph("Mjesečni pregled", h2))
+    month_data = [["Mjesec", "Mjesečne (€)", "Extra (€)", "Troškovi (€)", "Profit (€)"]]
+    for m in range(1, 13):
+        income_m = sum(p.get("iznos", 0) for p in payments if p.get("is_paid") and p.get("mjesec") == m)
+        extra_m = sum(s.get("iznos", 0) for s in services if s.get("is_paid") and s.get("datum", "").startswith(f"{godina}-{m:02d}"))
+        exp_m = sum(e.get("iznos", 0) for e in expenses if e.get("datum", "").startswith(f"{godina}-{m:02d}"))
+        profit_m = income_m + extra_m - exp_m
+        month_data.append([_month_name(m), f"{income_m:.2f}", f"{extra_m:.2f}", f"-{exp_m:.2f}", f"{profit_m:.2f}"])
+    
+    mt = Table(month_data, colWidths=[3*cm, 3*cm, 3*cm, 3*cm, 3*cm])
+    mt.setStyle(TableStyle([
+        ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#1e40af")),
+        ("TEXTCOLOR", (0, 0), (-1, 0), colors.white),
+        ("FONTNAME", (0, 0), (-1, 0), "Helvetica-Bold"),
+        ("ALIGN", (1, 0), (-1, -1), "RIGHT"),
+        ("GRID", (0, 0), (-1, -1), 0.5, colors.grey),
+        ("FONTSIZE", (0, 0), (-1, -1), 9),
+        ("ROWBACKGROUNDS", (0, 1), (-1, -1), [colors.white, colors.HexColor("#f8fafc")]),
+        ("BOTTOMPADDING", (0, 0), (-1, -1), 5),
+        ("TOPPADDING", (0, 0), (-1, -1), 5),
+    ]))
+    elements.append(mt)
+    
+    doc.build(elements)
+    buf.seek(0)
+    fname = f"Finansijski_izvjestaj_{godina}.pdf"
+    return StreamingResponse(
+        buf,
+        media_type="application/pdf",
+        headers={"Content-Disposition": f'attachment; filename="{fname}"'},
+    )
+
+
 # ============================================================================
 
 @api_router.get("/work-logs")

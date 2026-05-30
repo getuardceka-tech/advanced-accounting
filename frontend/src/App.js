@@ -14,6 +14,7 @@ import SpecijalnoPunomoce from "@/components/SpecijalnoPunomoce";
 import Vault from "@/components/Vault";
 import Documents from "@/components/Documents";
 import PdvTracking from "@/components/PdvTracking";
+import Finansije from "@/components/Finansije";
 import AgencySettings from "@/components/AgencySettings";
 
 const RequireAuth = ({ children }) => {
@@ -54,6 +55,7 @@ function App() {
           <Route path="fizicka-lica" element={<Persons />} />
           <Route path="dokumenti" element={<Documents />} />
           <Route path="pdv-ioppd" element={<PdvTracking />} />
+          <Route path="finansije" element={<Finansije />} />
           <Route path="agencija" element={<AgencySettings />} />
         </Route>
       </Routes>
