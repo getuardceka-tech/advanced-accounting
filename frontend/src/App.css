@@ -581,16 +581,85 @@
   max-width: 380px;
 }
 
+/* Mobile hamburger + sidebar drawer (hidden on desktop) */
+.hamburger-btn {
+  display: none;
+  background: transparent;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 7px;
+  cursor: pointer;
+  color: var(--text-secondary);
+}
+.hamburger-btn:hover {
+  background: var(--bg-page);
+}
+.sidebar-backdrop {
+  display: none;
+}
+.sidebar-close-mobile {
+  display: none;
+}
+
 /* Responsive */
 @media (max-width: 768px) {
   .app-shell {
     grid-template-columns: 1fr;
   }
   .sidebar {
-    display: none;
+    position: fixed;
+    top: 0;
+    left: 0;
+    height: 100vh;
+    width: 280px;
+    z-index: 200;
+    transform: translateX(-100%);
+    transition: transform 220ms ease;
+    box-shadow: 0 0 0 transparent;
+  }
+  .sidebar.sidebar-open {
+    transform: translateX(0);
+    box-shadow: 0 10px 30px rgba(0, 0, 0, 0.25);
+  }
+  .sidebar-backdrop {
+    display: block;
+    position: fixed;
+    inset: 0;
+    background: rgba(15, 23, 42, 0.45);
+    z-index: 150;
+    animation: fade-in 180ms ease;
+  }
+  .sidebar-close-mobile {
+    display: flex;
+    position: absolute;
+    top: 12px;
+    right: 12px;
+    background: transparent;
+    border: none;
+    cursor: pointer;
+    padding: 6px;
+    color: var(--text-secondary);
+    border-radius: 6px;
+  }
+  .sidebar-close-mobile:hover {
+    background: var(--bg-page);
+  }
+  .hamburger-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    margin-right: 4px;
   }
   .content {
-    padding: 20px;
+    padding: 16px 14px;
+  }
+  .topbar {
+    padding: 10px 14px;
+    gap: 8px;
+  }
+  .topbar-search {
+    flex: 1;
+    min-width: 0;
   }
   .login-shell {
     grid-template-columns: 1fr;
@@ -598,6 +667,32 @@
   .login-side {
     display: none;
   }
+  /* Page-level adaptations */
+  .page-header {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 10px;
+  }
+  .page-title {
+    font-size: 22px !important;
+  }
+  /* Tables on small screens */
+  table {
+    font-size: 12px;
+  }
+  /* Modals */
+  .modal {
+    max-width: calc(100vw - 24px) !important;
+    margin: 12px;
+  }
+  /* Hide non-essential topbar widgets */
+  .topbar-kbd { display: none !important; }
+  .topbar-meta { display: none !important; }
+}
+
+@keyframes fade-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
 }
 
 /* Checkbox custom */

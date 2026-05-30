@@ -13,6 +13,8 @@ import {
   Plus,
   Lock,
   CurrencyEur,
+  List,
+  X,
 } from "@phosphor-icons/react";
 import api, { clearToken } from "@/lib/api";
 
@@ -29,6 +31,7 @@ export default function Layout() {
   const navigate = useNavigate();
   const location = useLocation();
   const [agency, setAgency] = useState(null);
+  const [mobileOpen, setMobileOpen] = useState(false);
 
   useEffect(() => {
     api
@@ -37,6 +40,11 @@ export default function Layout() {
       .catch(() => {});
   }, []);
 
+  // Close drawer on route change
+  useEffect(() => {
+    setMobileOpen(false);
+  }, [location.pathname]);
+
   const logout = () => {
     clearToken();
     navigate("/login");
@@ -44,7 +52,16 @@ export default function Layout() {
 
   return (
     <div className="app-shell">
-      <aside className="sidebar" data-testid="sidebar">
+      {mobileOpen && <div className="sidebar-backdrop" onClick={() => setMobileOpen(false)} />}
+      <aside className={`sidebar ${mobileOpen ? "sidebar-open" : ""}`} data-testid="sidebar">
+        <button
+          className="sidebar-close-mobile"
+          onClick={() => setMobileOpen(false)}
+          aria-label="Zatvori meni"
+          data-testid="sidebar-close"
+        >
+          <X size={20} />
+        </button>
         <div className="sidebar-brand">
           <div className="sidebar-brand-mark">AA</div>
           <div className="sidebar-brand-text">
@@ -182,6 +199,14 @@ export default function Layout() {
 
       <div className="main-area">
         <header className="topbar">
+          <button
+            className="hamburger-btn"
+            onClick={() => setMobileOpen(true)}
+            aria-label="Otvori meni"
+            data-testid="hamburger-btn"
+          >
+            <List size={20} />
+          </button>
           <div className="topbar-search">
             <MagnifyingGlass size={15} color="var(--text-tertiary)" />
             <input
@@ -198,6 +223,7 @@ export default function Layout() {
                 borderRadius: 4,
                 fontFamily: "JetBrains Mono, monospace",
               }}
+              className="topbar-kbd"
             >
               ⌘K
             </span>
@@ -211,6 +237,7 @@ export default function Layout() {
             <Bell size={17} />
           </button>
           <div
+            className="topbar-meta"
             style={{
               fontSize: 12.5,
               color: "var(--text-tertiary)",
