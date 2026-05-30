@@ -3368,6 +3368,134 @@ async def clear_year_payments(year: int, username: str = Depends(get_current_use
     return {"deleted_payments": r1.deleted_count, "year": year}
 
 
+@api_router.get("/finance/per-client")
+async def finance_per_client(godina: int = None, username: str = Depends(get_current_user)):
+    """Pojedinačni izvještaj profitabilnosti po klijentu za datu godinu.
+    Direktni troškovi = expenses sa kategorija='usluga' koji su povezani sa firmom
+    direktno (company_id) ili indirektno (preko extra_service_id → service.company_id)."""
+    if not godina:
+        godina = datetime.now(timezone.utc).year
+    
+    companies = await db.companies.find({}, {"_id": 0, "id": 1, "naziv": 1, "naziv_skraceni": 1, "pib": 1}).to_list(500)
+    co_by_cid = {c["id"]: c for c in companies}
+    
+    # Cjenovnik (mjesečne naknade po firmi) — koristi se da bismo izračunali OČEKIVANE prihode
+    pricings = await db.company_pricing.find({}, {"_id": 0}).to_list(500)
+    pricing_by_cid = {p["company_id"]: p for p in pricings if (p.get("monthly_fee") or 0) > 0}
+    
+    # Prihodi: mjesečne uplate (naplaćene)
+    payments = await db.monthly_payments.find({"godina": godina}, {"_id": 0}).to_list(5000)
+    payments_by_cid: Dict[str, List[Dict]] = {}
+    for p in payments:
+        payments_by_cid.setdefault(p.get("company_id", ""), []).append(p)
+    
+    # Prihodi: extra usluge u toj godini
+    services_all = await db.extra_services.find({}, {"_id": 0}).to_list(2000)
+    services = [s for s in services_all if s.get("datum", "").startswith(str(godina))]
+    svc_by_id = {s["id"]: s for s in services_all}
+    
+    # Troškovi (direktni — kategorija usluga, u toj godini)
+    expenses_all = await db.expenses.find({"kategorija": "usluga"}, {"_id": 0}).to_list(2000)
+    expenses = [e for e in expenses_all if e.get("datum", "").startswith(str(godina))]
+    
+    # Određivanje koliko mjeseci je "prošlo" do danas za godinu (za očekivani prihod)
+    today = datetime.now(timezone.utc)
+    if godina < today.year:
+        months_passed = 12
+    elif godina == today.year:
+        months_passed = today.month
+    else:
+        months_passed = 0  # buduća godina
+    
+    out: Dict[str, Dict] = {}
+    
+    def slot(cid: str) -> Dict:
+        if cid not in out:
+            co = co_by_cid.get(cid, {})
+            out[cid] = {
+                "company_id": cid,
+                "naziv": co.get("naziv", "Nepoznata firma"),
+                "naziv_skraceni": co.get("naziv_skraceni", ""),
+                "pib": co.get("pib", ""),
+                "monthly_fee": pricing_by_cid.get(cid, {}).get("monthly_fee", 0.0),
+                "income_monthly_paid": 0.0,
+                "income_monthly_pending": 0.0,
+                "income_extra_paid": 0.0,
+                "income_extra_pending": 0.0,
+                "expense_direct": 0.0,
+                "n_extra_services": 0,
+                "n_paid_months": 0,
+                "n_pending_months": 0,
+            }
+        return out[cid]
+    
+    # 1) Mjesečne uplate iz DB
+    for p in payments:
+        cid = p.get("company_id")
+        if not cid:
+            continue
+        s = slot(cid)
+        iznos = float(p.get("iznos") or 0)
+        if p.get("is_paid"):
+            s["income_monthly_paid"] += iznos
+            s["n_paid_months"] += 1
+        else:
+            s["income_monthly_pending"] += iznos
+            s["n_pending_months"] += 1
+    
+    # 2) Firme iz cjenovnika — za njih izračunaj OČEKIVANE pending mjesece koji još nisu u DB
+    for cid, pricing in pricing_by_cid.items():
+        s = slot(cid)
+        fee = float(pricing.get("monthly_fee") or 0)
+        # broj mjeseci za koje već imamo zapis (paid + pending)
+        recorded_months = set()
+        for p in payments_by_cid.get(cid, []):
+            recorded_months.add(int(p.get("mjesec") or 0))
+        # Mjeseci u godini koji su prošli ali nemaju zapis → očekivano dugovanje
+        for m in range(1, months_passed + 1):
+            if m not in recorded_months:
+                s["income_monthly_pending"] += fee
+                s["n_pending_months"] += 1
+    
+    # 3) Extra usluge
+    for sv in services:
+        cid = sv.get("company_id")
+        if not cid:
+            continue
+        s = slot(cid)
+        iznos = float(sv.get("iznos") or 0)
+        if sv.get("is_paid"):
+            s["income_extra_paid"] += iznos
+        else:
+            s["income_extra_pending"] += iznos
+        s["n_extra_services"] += 1
+    
+    # 4) Direktni troškovi
+    for e in expenses:
+        cid = e.get("company_id") or ""
+        if not cid:
+            esid = e.get("extra_service_id") or ""
+            sv = svc_by_id.get(esid)
+            if sv:
+                cid = sv.get("company_id", "")
+        if not cid:
+            continue
+        s = slot(cid)
+        s["expense_direct"] += float(e.get("iznos") or 0)
+    
+    # Profit
+    for s in out.values():
+        s["total_income_paid"] = round(s["income_monthly_paid"] + s["income_extra_paid"], 2)
+        s["total_pending"] = round(s["income_monthly_pending"] + s["income_extra_pending"], 2)
+        s["profit"] = round(s["total_income_paid"] - s["expense_direct"], 2)
+        for k in ["income_monthly_paid", "income_monthly_pending", "income_extra_paid", "income_extra_pending", "expense_direct", "monthly_fee"]:
+            s[k] = round(s[k], 2)
+    
+    result = list(out.values())
+    result.sort(key=lambda x: x["profit"], reverse=True)
+    return result
+
+
 # === EXPORT (Excel + PDF) ===
 
 def _month_name(m: int) -> str:

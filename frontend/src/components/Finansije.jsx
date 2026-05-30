@@ -625,11 +625,15 @@ function ExpenseModal({ entry, services, companies, onClose, onSaved }) {
 /* =================== PREGLED PROFITA =================== */
 function PregledProfita() {
   const [summary, setSummary] = useState(null);
+  const [perClient, setPerClient] = useState([]);
   const [godina, setGodina] = useState(new Date().getFullYear());
   const [exporting, setExporting] = useState("");
+  const [clientSort, setClientSort] = useState("profit"); // profit | naziv | income | expense
+  const [clientSearch, setClientSearch] = useState("");
   
   useEffect(() => {
     api.get("/finance/summary", { params: { godina } }).then((r) => setSummary(r.data));
+    api.get("/finance/per-client", { params: { godina } }).then((r) => setPerClient(r.data));
   }, [godina]);
   
   const downloadExport = async (kind) => {
@@ -715,6 +719,110 @@ function PregledProfita() {
             })}
           </tbody>
         </table>
+      </div>
+      
+      <PerClientReport perClient={perClient} clientSort={clientSort} setClientSort={setClientSort} clientSearch={clientSearch} setClientSearch={setClientSearch} godina={godina} />
+    </div>
+  );
+}
+
+function PerClientReport({ perClient, clientSort, setClientSort, clientSearch, setClientSearch, godina }) {
+  const filtered = useMemo(() => {
+    let arr = perClient;
+    if (clientSearch.trim()) {
+      const q = clientSearch.toLowerCase();
+      arr = arr.filter((c) => (c.naziv || "").toLowerCase().includes(q) || (c.pib || "").includes(q));
+    }
+    const sorted = [...arr];
+    if (clientSort === "naziv") sorted.sort((a, b) => (a.naziv || "").localeCompare(b.naziv || ""));
+    else if (clientSort === "income") sorted.sort((a, b) => b.total_income_paid - a.total_income_paid);
+    else if (clientSort === "expense") sorted.sort((a, b) => b.expense_direct - a.expense_direct);
+    else if (clientSort === "pending") sorted.sort((a, b) => b.total_pending - a.total_pending);
+    else sorted.sort((a, b) => b.profit - a.profit);
+    return sorted;
+  }, [perClient, clientSort, clientSearch]);
+  
+  const tot = perClient.reduce((acc, c) => ({
+    income: acc.income + c.total_income_paid,
+    expense: acc.expense + c.expense_direct,
+    profit: acc.profit + c.profit,
+    pending: acc.pending + c.total_pending,
+  }), { income: 0, expense: 0, profit: 0, pending: 0 });
+  
+  return (
+    <div style={{ background: "white", border: "1px solid var(--border)", borderRadius: 10, padding: 16, marginTop: 16 }} data-testid="per-client-report">
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12, flexWrap: "wrap", gap: 10 }}>
+        <h3 style={{ margin: 0, fontSize: 14, fontWeight: 600 }}>👥 Profit po klijentu — {godina}</h3>
+        <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+          <div style={{ position: "relative" }}>
+            <MagnifyingGlass size={13} style={{ position: "absolute", left: 9, top: 10, color: "var(--text-tertiary)" }} />
+            <input className="input" placeholder="Pretraži firmu..." value={clientSearch} onChange={(e) => setClientSearch(e.target.value)} style={{ paddingLeft: 28, height: 32, fontSize: 12.5, width: 200 }} />
+          </div>
+          <select className="select" value={clientSort} onChange={(e) => setClientSort(e.target.value)} style={{ width: 180, height: 32, fontSize: 12.5 }} data-testid="client-sort">
+            <option value="profit">Sortiraj: Profit ↓</option>
+            <option value="income">Sortiraj: Prihod ↓</option>
+            <option value="expense">Sortiraj: Troškovi ↓</option>
+            <option value="pending">Sortiraj: Duguje ↓</option>
+            <option value="naziv">Sortiraj: Naziv A-Z</option>
+          </select>
+        </div>
+      </div>
+      
+      <div style={{ overflow: "auto", maxHeight: 560 }}>
+        <table style={{ width: "100%", fontSize: 12.5, borderCollapse: "collapse" }}>
+          <thead style={{ background: "#f8fafc", position: "sticky", top: 0 }}>
+            <tr>
+              <th style={{ padding: 8, textAlign: "left", fontWeight: 600 }}>Klijent</th>
+              <th style={{ padding: 8, textAlign: "right", fontWeight: 600 }}>Mjes. naplaćeno</th>
+              <th style={{ padding: 8, textAlign: "right", fontWeight: 600 }}>Extra naplaćeno</th>
+              <th style={{ padding: 8, textAlign: "right", fontWeight: 600 }}>Duguje</th>
+              <th style={{ padding: 8, textAlign: "right", fontWeight: 600 }}>Direktni troškovi</th>
+              <th style={{ padding: 8, textAlign: "right", fontWeight: 700 }}>PROFIT</th>
+            </tr>
+          </thead>
+          <tbody>
+            {filtered.length === 0 && (
+              <tr><td colSpan={6} style={{ padding: 24, textAlign: "center", color: "var(--text-tertiary)" }}>Nema podataka za prikaz.</td></tr>
+            )}
+            {filtered.map((c) => (
+              <tr key={c.company_id} style={{ borderBottom: "1px solid var(--border-light)" }} data-testid={`pc-row-${c.company_id}`}>
+                <td style={{ padding: 8 }}>
+                  <div style={{ fontWeight: 600 }}>{c.naziv}</div>
+                  <div style={{ fontSize: 11, color: "var(--text-tertiary)" }}>
+                    {c.pib && <>PIB: {c.pib} · </>}
+                    {c.n_paid_months > 0 && <>{c.n_paid_months} mj. naplaćeno · </>}
+                    {c.n_extra_services > 0 && <>{c.n_extra_services} extra usluga</>}
+                  </div>
+                </td>
+                <td style={{ padding: 8, textAlign: "right", color: "#10b981", fontWeight: 500 }}>{c.income_monthly_paid.toFixed(2)} €</td>
+                <td style={{ padding: 8, textAlign: "right", color: "#3b82f6", fontWeight: 500 }}>{c.income_extra_paid.toFixed(2)} €</td>
+                <td style={{ padding: 8, textAlign: "right", color: c.total_pending > 0 ? "#f59e0b" : "var(--text-tertiary)", fontWeight: c.total_pending > 0 ? 600 : 400 }}>
+                  {c.total_pending > 0 ? `${c.total_pending.toFixed(2)} €` : "—"}
+                </td>
+                <td style={{ padding: 8, textAlign: "right", color: "#ef4444" }}>
+                  {c.expense_direct > 0 ? `-${c.expense_direct.toFixed(2)} €` : "—"}
+                </td>
+                <td style={{ padding: 8, textAlign: "right", fontWeight: 700, color: c.profit >= 0 ? "#10b981" : "#ef4444", fontSize: 13 }}>
+                  {c.profit.toFixed(2)} €
+                </td>
+              </tr>
+            ))}
+          </tbody>
+          {filtered.length > 0 && (
+            <tfoot style={{ background: "#f8fafc", borderTop: "2px solid var(--border)" }}>
+              <tr>
+                <td style={{ padding: 10, fontWeight: 700 }}>UKUPNO ({filtered.length} klijenata)</td>
+                <td colSpan={2} style={{ padding: 10, textAlign: "right", fontWeight: 700, color: "#10b981" }}>{tot.income.toFixed(2)} €</td>
+                <td style={{ padding: 10, textAlign: "right", fontWeight: 700, color: "#f59e0b" }}>{tot.pending.toFixed(2)} €</td>
+                <td style={{ padding: 10, textAlign: "right", fontWeight: 700, color: "#ef4444" }}>-{tot.expense.toFixed(2)} €</td>
+                <td style={{ padding: 10, textAlign: "right", fontWeight: 700, color: tot.profit >= 0 ? "#10b981" : "#ef4444", fontSize: 14 }}>{tot.profit.toFixed(2)} €</td>
+              </tr>
+            </tfoot>
+          )}
+        </table>
+      </div>
+      <div style={{ marginTop: 10, fontSize: 11.5, color: "var(--text-tertiary)" }}>
+        💡 <i>Direktni troškovi</i> uključuju samo troškove kategorije "Vezan za uslugu" povezane sa klijentom. Opšti agencijski troškovi nisu raspoređeni po klijentima.
       </div>
     </div>
   );
