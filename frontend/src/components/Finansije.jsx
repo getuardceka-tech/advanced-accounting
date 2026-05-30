@@ -389,10 +389,11 @@ function ServiceModal({ entry, companies, onClose, onSaved }) {
         <div className="modal-body" style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
           <div className="field-group" style={{ gridColumn: "1/-1" }}>
             <label className="field-label">Firma *</label>
-            <select className="select" value={form.company_id} onChange={(e) => setForm({ ...form, company_id: e.target.value })}>
-              <option value="">— Odaberi firmu —</option>
-              {companies.map((c) => <option key={c.id} value={c.id}>{c.naziv}</option>)}
-            </select>
+            <CompanySearch
+              companies={companies}
+              selectedId={form.company_id}
+              onSelect={(c) => setForm({ ...form, company_id: c ? c.id : "" })}
+            />
           </div>
           <div className="field-group" style={{ gridColumn: "1/-1" }}>
             <label className="field-label">Naziv usluge *</label>
@@ -595,13 +596,23 @@ function ExpenseModal({ entry, services, companies, onClose, onSaved }) {
             </div>
           </div>
           {form.kategorija === "usluga" && (
-            <div className="field-group" style={{ gridColumn: "1/-1" }}>
-              <label className="field-label">Povezana usluga (opciono)</label>
-              <select className="select" value={form.extra_service_id} onChange={(e) => setForm({ ...form, extra_service_id: e.target.value })}>
-                <option value="">— Odaberi uslugu —</option>
-                {services.map((s) => <option key={s.id} value={s.id}>{s.naziv} ({s.company_naziv || ""})</option>)}
-              </select>
-            </div>
+            <>
+              <div className="field-group" style={{ gridColumn: "1/-1" }}>
+                <label className="field-label">Firma za koju radim uslugu</label>
+                <CompanySearch
+                  companies={companies}
+                  selectedId={form.company_id}
+                  onSelect={(c) => setForm({ ...form, company_id: c ? c.id : "" })}
+                />
+              </div>
+              <div className="field-group" style={{ gridColumn: "1/-1" }}>
+                <label className="field-label">Povezana usluga (opciono)</label>
+                <select className="select" value={form.extra_service_id} onChange={(e) => setForm({ ...form, extra_service_id: e.target.value })}>
+                  <option value="">— Odaberi uslugu —</option>
+                  {services.map((s) => <option key={s.id} value={s.id}>{s.naziv} ({s.company_naziv || ""})</option>)}
+                </select>
+              </div>
+            </>
           )}
           <div className="field-group" style={{ gridColumn: "1/-1" }}>
             <label className="field-label">Napomena</label>
@@ -720,6 +731,109 @@ function PregledProfita() {
 /* =================== HELPERS =================== */
 const th = { padding: "10px 12px", textAlign: "left", fontWeight: 600, fontSize: 11.5, color: "var(--text-tertiary)", textTransform: "uppercase", letterSpacing: 0.4 };
 const td = { padding: "9px 12px" };
+
+function CompanySearch({ companies, selectedId, onSelect }) {
+  const [query, setQuery] = useState("");
+  const [open, setOpen] = useState(false);
+  
+  const selected = companies.find((c) => c.id === selectedId);
+  
+  const filtered = useMemo(() => {
+    if (!query.trim()) return companies.slice(0, 50);
+    const q = query.toLowerCase().trim();
+    return companies.filter((c) =>
+      (c.naziv || "").toLowerCase().includes(q) ||
+      (c.naziv_skraceni || "").toLowerCase().includes(q) ||
+      (c.pib || "").includes(q)
+    ).slice(0, 50);
+  }, [companies, query]);
+  
+  if (selected && !open) {
+    return (
+      <div
+        className="input"
+        style={{ cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "space-between", padding: "8px 12px" }}
+        onClick={() => setOpen(true)}
+        data-testid="finance-company-selected"
+      >
+        <div style={{ display: "flex", flexDirection: "column", flex: 1, minWidth: 0 }}>
+          <div style={{ fontSize: 13.5, fontWeight: 600, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
+            {selected.naziv}
+          </div>
+          <div style={{ fontSize: 11.5, color: "var(--text-tertiary)" }}>
+            PIB: {selected.pib}
+          </div>
+        </div>
+        <button
+          onClick={(e) => { e.stopPropagation(); onSelect(null); setQuery(""); setOpen(true); }}
+          style={{ background: "none", border: "none", cursor: "pointer", padding: 4, color: "var(--text-tertiary)" }}
+          title="Promijeni firmu"
+        >
+          <X size={14} />
+        </button>
+      </div>
+    );
+  }
+  
+  return (
+    <div style={{ position: "relative" }} data-testid="finance-company-search">
+      <div style={{ position: "relative" }}>
+        <MagnifyingGlass size={14} style={{ position: "absolute", left: 10, top: 12, color: "var(--text-tertiary)" }} />
+        <input
+          className="input"
+          placeholder="Kucaj naziv firme ili PIB..."
+          value={query}
+          onChange={(e) => { setQuery(e.target.value); setOpen(true); }}
+          onFocus={() => setOpen(true)}
+          onBlur={() => setTimeout(() => setOpen(false), 200)}
+          autoFocus
+          style={{ paddingLeft: 32 }}
+          data-testid="finance-company-search-input"
+        />
+      </div>
+      {open && (
+        <div
+          style={{
+            position: "absolute", top: "calc(100% + 4px)", left: 0, right: 0,
+            background: "white", border: "1px solid var(--border)", borderRadius: 8,
+            boxShadow: "0 8px 24px rgba(0,0,0,0.12)", zIndex: 100,
+            maxHeight: 280, overflow: "auto"
+          }}
+        >
+          {filtered.length === 0 && (
+            <div style={{ padding: 14, textAlign: "center", color: "var(--text-tertiary)", fontSize: 13 }}>
+              Nema firmi za "{query}"
+            </div>
+          )}
+          {filtered.map((c) => (
+            <div
+              key={c.id}
+              onMouseDown={(e) => { e.preventDefault(); onSelect(c); setOpen(false); setQuery(""); }}
+              data-testid={`finance-company-opt-${c.id}`}
+              style={{
+                padding: "9px 12px",
+                cursor: "pointer",
+                borderBottom: "1px solid var(--border-light)",
+                display: "flex",
+                flexDirection: "column",
+                gap: 2,
+                fontSize: 13,
+              }}
+              onMouseEnter={(e) => e.currentTarget.style.background = "#f8fafc"}
+              onMouseLeave={(e) => e.currentTarget.style.background = "white"}
+            >
+              <div style={{ fontWeight: 500 }}>{c.naziv}</div>
+              <div style={{ fontSize: 11.5, color: "var(--text-tertiary)" }}>
+                {c.naziv_skraceni && <span>{c.naziv_skraceni} · </span>}
+                PIB: {c.pib}
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
 
 /* =================== ALARMI NEPLAĆENIH =================== */
 function AlarmiNeplacenih({ onChanged }) {
