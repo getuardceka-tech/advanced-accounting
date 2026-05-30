@@ -132,9 +132,7 @@ function MjesecneNaknade() {
         <select className="select" value={mjesec} onChange={(e) => setMjesec(Number(e.target.value))} data-testid="filter-mjesec" style={{ minWidth: 140 }}>
           {MJESECI.map((m, i) => <option key={i} value={i + 1}>{m}</option>)}
         </select>
-        <select className="select" value={godina} onChange={(e) => setGodina(Number(e.target.value))} data-testid="filter-godina" style={{ width: 110 }}>
-          {[2024, 2025, 2026, 2027].map((g) => <option key={g} value={g}>{g}</option>)}
-        </select>
+        <YearPicker value={godina} onChange={setGodina} width={100} />
         <div style={{ position: "relative", flex: 1, minWidth: 220 }}>
           <MagnifyingGlass size={14} style={{ position: "absolute", left: 11, top: 11, color: "var(--text-tertiary)" }} />
           <input className="input" placeholder="Pretraži firmu..." value={search} onChange={(e) => setSearch(e.target.value)} style={{ paddingLeft: 32 }} />
@@ -305,9 +303,7 @@ function DodatneUsluge() {
         <StatCard label="Neisplaćeno" value={`${(total - paid).toFixed(2)} €`} color="#f59e0b" icon={Clock} />
       </div>
       <div style={{ marginBottom: 14, display: "flex", gap: 10, alignItems: "center" }}>
-        <select className="select" value={godina} onChange={(e) => setGodina(Number(e.target.value))} style={{ width: 110 }}>
-          {[2024, 2025, 2026, 2027].map((g) => <option key={g} value={g}>{g}</option>)}
-        </select>
+        <YearPicker value={godina} onChange={setGodina} width={100} />
         <button className="btn btn-primary" onClick={() => setModal({ entry: { datum: new Date().toISOString().slice(0, 10), is_paid: false } })} data-testid="add-service-btn">
           <Plus size={14} /> Dodaj uslugu
         </button>
@@ -471,9 +467,7 @@ function Troskovi() {
         <StatCard label="Ukupno troškova" value={`${(totalOpsti + totalUsluga).toFixed(2)} €`} color="#ef4444" icon={TrendDown} />
       </div>
       <div style={{ marginBottom: 14, display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
-        <select className="select" value={godina} onChange={(e) => setGodina(Number(e.target.value))} style={{ width: 110 }}>
-          {[2024, 2025, 2026, 2027].map((g) => <option key={g} value={g}>{g}</option>)}
-        </select>
+        <YearPicker value={godina} onChange={setGodina} width={100} />
         <select className="select" value={filterKat} onChange={(e) => setFilterKat(e.target.value)} style={{ width: 180 }}>
           <option value="">Sve kategorije</option>
           <option value="opsti">Opšti agencijski</option>
@@ -660,9 +654,7 @@ function PregledProfita() {
   return (
     <div>
       <div style={{ marginBottom: 14, display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
-        <select className="select" value={godina} onChange={(e) => setGodina(Number(e.target.value))} style={{ width: 110 }}>
-          {[2024, 2025, 2026, 2027].map((g) => <option key={g} value={g}>{g}</option>)}
-        </select>
+        <YearPicker value={godina} onChange={setGodina} width={100} />
         <span style={{ fontSize: 13, color: "var(--text-tertiary)" }}>Pregled za {godina}. godinu</span>
         <div style={{ flex: 1 }} />
         <button className="btn btn-secondary" onClick={() => downloadExport("excel")} disabled={exporting === "excel"} data-testid="export-excel-btn">
@@ -731,6 +723,69 @@ function PregledProfita() {
 /* =================== HELPERS =================== */
 const th = { padding: "10px 12px", textAlign: "left", fontWeight: 600, fontSize: 11.5, color: "var(--text-tertiary)", textTransform: "uppercase", letterSpacing: 0.4 };
 const td = { padding: "9px 12px" };
+
+function YearPicker({ value, onChange, width = 140 }) {
+  const [years, setYears] = useState([new Date().getFullYear(), new Date().getFullYear() + 1]);
+  const [loaded, setLoaded] = useState(false);
+  
+  useEffect(() => {
+    api.get("/finance/settings").then((r) => {
+      const ys = r.data.active_years || [];
+      if (ys.length) setYears(ys);
+      setLoaded(true);
+    }).catch(() => setLoaded(true));
+  }, []);
+  
+  const addYear = async () => {
+    const input = prompt("Unesi godinu koju želiš dodati (npr. 2028):", String(Math.max(...years) + 1));
+    if (!input) return;
+    const yr = parseInt(input, 10);
+    if (isNaN(yr) || yr < 2020 || yr > 2099) { alert("Neispravna godina."); return; }
+    if (years.includes(yr)) { alert("Godina već postoji."); return; }
+    const newYears = [...years, yr].sort();
+    setYears(newYears);
+    await api.put("/finance/settings", { active_years: newYears });
+    if (onChange) onChange(yr);
+  };
+  
+  const removeYear = async (yr) => {
+    if (years.length <= 1) { alert("Mora ostati barem jedna godina."); return; }
+    if (!confirm(`Ukloniti godinu ${yr} iz liste? (Postojeći podaci u bazi neće biti obrisani.)`)) return;
+    const newYears = years.filter((y) => y !== yr);
+    setYears(newYears);
+    await api.put("/finance/settings", { active_years: newYears });
+    if (yr === value && newYears.length) onChange(newYears[0]);
+  };
+  
+  return (
+    <div style={{ display: "inline-flex", gap: 4, alignItems: "center" }}>
+      <select className="select" value={value} onChange={(e) => onChange(Number(e.target.value))} style={{ width }} data-testid="year-picker">
+        {!years.includes(value) && <option value={value}>{value}</option>}
+        {years.map((g) => <option key={g} value={g}>{g}</option>)}
+      </select>
+      <button
+        type="button"
+        onClick={addYear}
+        title="Dodaj novu godinu"
+        data-testid="add-year-btn"
+        style={{ padding: "6px 9px", borderRadius: 6, border: "1px solid var(--border)", background: "white", cursor: "pointer", display: "inline-flex", alignItems: "center", gap: 4, fontSize: 12, color: "var(--text-secondary)" }}
+      >
+        <Plus size={12} /> Godina
+      </button>
+      {loaded && years.length > 1 && years.includes(value) && (
+        <button
+          type="button"
+          onClick={() => removeYear(value)}
+          title={`Ukloni ${value} iz liste`}
+          data-testid="remove-year-btn"
+          style={{ padding: "6px 8px", borderRadius: 6, border: "1px solid var(--border)", background: "white", cursor: "pointer", color: "#ef4444", display: "inline-flex", alignItems: "center" }}
+        >
+          <Trash size={12} />
+        </button>
+      )}
+    </div>
+  );
+}
 
 function CompanySearch({ companies, selectedId, onSelect }) {
   const [query, setQuery] = useState("");

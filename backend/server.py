@@ -3271,6 +3271,11 @@ async def list_overdue(days: int = 30, username: str = Depends(get_current_user)
     if not pricing_by_cid:
         return []
     
+    # Učitaj minimalnu godinu praćenja iz finance_settings
+    settings = await db.finance_settings.find_one({"_id": "default"}, {"_id": 0}) or {}
+    active_years = settings.get("active_years") or [datetime.now(timezone.utc).year, datetime.now(timezone.utc).year + 1]
+    min_year = min(active_years)
+    
     # Postojeće uplate
     payments = await db.monthly_payments.find({}, {"_id": 0}).to_list(5000)
     paid_keys = {(p["company_id"], p["godina"], p["mjesec"]) for p in payments if p.get("is_paid")}
@@ -3297,6 +3302,9 @@ async def list_overdue(days: int = 30, username: str = Depends(get_current_user)
             # mjesec još nije overdue
             cur = (cur.replace(day=1) - timedelta(days=1))
             continue
+        if godina < min_year:
+            # Skip stare godine ispod min_year iz settings-a
+            break
         for cid, p in pricing_by_cid.items():
             if (cid, godina, mjesec) in paid_keys:
                 continue
@@ -3322,6 +3330,42 @@ async def list_overdue(days: int = 30, username: str = Depends(get_current_user)
     # Filtriraj firme bez dugovanja (može se desiti)
     result = [r for r in result if r["overdue_months"]]
     return result
+
+
+# === FINANCE SETTINGS (aktivne godine) ===
+
+@api_router.get("/finance/settings")
+async def get_finance_settings(username: str = Depends(get_current_user)):
+    s = await db.finance_settings.find_one({"_id": "default"}, {"_id": 0})
+    if not s:
+        cur_year = datetime.now(timezone.utc).year
+        s = {"active_years": [cur_year, cur_year + 1]}
+    s.setdefault("active_years", [])
+    s["active_years"] = sorted(set(int(y) for y in s["active_years"]))
+    return s
+
+
+class FinanceSettings(BaseModel):
+    active_years: List[int] = []
+
+
+@api_router.put("/finance/settings")
+async def update_finance_settings(req: FinanceSettings, username: str = Depends(get_current_user)):
+    years = sorted(set(int(y) for y in req.active_years))
+    await db.finance_settings.update_one(
+        {"_id": "default"},
+        {"$set": {"active_years": years, "updated_at": datetime.now(timezone.utc).isoformat()}},
+        upsert=True,
+    )
+    return {"active_years": years}
+
+
+@api_router.delete("/finance/clear-year/{year}")
+async def clear_year_payments(year: int, username: str = Depends(get_current_user)):
+    """Briše sve mjesečne uplate za datu godinu. Korisno kada su svi računi za prošlu godinu plaćeni
+    i ne želiš da ti prikazuje overdue alarme za historijske godine."""
+    r1 = await db.monthly_payments.delete_many({"godina": year})
+    return {"deleted_payments": r1.deleted_count, "year": year}
 
 
 # === EXPORT (Excel + PDF) ===
