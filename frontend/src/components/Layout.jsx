@@ -15,6 +15,7 @@ import {
   CurrencyEur,
   List,
   X,
+  Warning,
 } from "@phosphor-icons/react";
 import api, { clearToken } from "@/lib/api";
 
@@ -32,6 +33,7 @@ export default function Layout() {
   const location = useLocation();
   const [agency, setAgency] = useState(null);
   const [mobileOpen, setMobileOpen] = useState(false);
+  const [toasts, setToasts] = useState([]);
 
   useEffect(() => {
     api
@@ -44,6 +46,24 @@ export default function Layout() {
   useEffect(() => {
     setMobileOpen(false);
   }, [location.pathname]);
+
+  // Global toast listener for API errors and custom events
+  useEffect(() => {
+    const handler = (e) => {
+      const id = Math.random().toString(36).slice(2, 9);
+      const detail = e.detail || {};
+      setToasts((prev) => [...prev, { id, msg: detail.msg || "Greška", type: detail.type || "error" }]);
+      setTimeout(() => {
+        setToasts((prev) => prev.filter((t) => t.id !== id));
+      }, 4500);
+    };
+    window.addEventListener("api-error", handler);
+    window.addEventListener("toast", handler);
+    return () => {
+      window.removeEventListener("api-error", handler);
+      window.removeEventListener("toast", handler);
+    };
+  }, []);
 
   const logout = () => {
     clearToken();
@@ -257,6 +277,38 @@ export default function Layout() {
         <main className="content animate-fade-in">
           <Outlet />
         </main>
+      </div>
+      
+      {/* Global toast stack */}
+      <div style={{ position: "fixed", bottom: 20, right: 20, zIndex: 9999, display: "flex", flexDirection: "column", gap: 8, maxWidth: 360 }} data-testid="toast-stack">
+        {toasts.map((t) => (
+          <div
+            key={t.id}
+            style={{
+              background: t.type === "success" ? "#10b981" : "#ef4444",
+              color: "white",
+              padding: "11px 14px",
+              borderRadius: 8,
+              boxShadow: "0 8px 24px rgba(0,0,0,0.18)",
+              display: "flex",
+              alignItems: "center",
+              gap: 10,
+              fontSize: 13.5,
+              fontWeight: 500,
+              animation: "slide-up 220ms ease",
+            }}
+            data-testid={`toast-${t.type}`}
+          >
+            <Warning size={18} weight="fill" />
+            <span style={{ flex: 1 }}>{t.msg}</span>
+            <button
+              onClick={() => setToasts((prev) => prev.filter((x) => x.id !== t.id))}
+              style={{ background: "transparent", border: "none", color: "white", cursor: "pointer", padding: 2, opacity: 0.7 }}
+            >
+              <X size={14} />
+            </button>
+          </div>
+        ))}
       </div>
     </div>
   );

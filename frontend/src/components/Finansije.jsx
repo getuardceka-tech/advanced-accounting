@@ -112,8 +112,18 @@ function MjesecneNaknade() {
       datum_naplate: patch.datum_naplate !== undefined ? patch.datum_naplate : (item.datum_naplate || ""),
       napomena: patch.napomena !== undefined ? patch.napomena : (item.napomena || ""),
     };
-    await api.post("/finance/payments", payload);
-    await load();
+    try {
+      await api.post("/finance/payments", payload);
+      await load();
+    } catch (err) {
+      const msg = err.response?.status === 502
+        ? "Server trenutno nedostupan. Pokušaj ponovo za par sekundi."
+        : `Greška pri čuvanju: ${err.message || "nepoznato"}`;
+      // Soft notification — bez crash-a
+      // eslint-disable-next-line no-console
+      console.warn("[updatePayment]", err);
+      window.dispatchEvent(new CustomEvent("toast", { detail: { type: "error", msg } }));
+    }
   };
   
   const total = filtered.reduce((acc, i) => acc + (Number(i.iznos) || 0), 0);
