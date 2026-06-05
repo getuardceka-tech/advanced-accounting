@@ -134,6 +134,7 @@ export default function CompanyDetail() {
       <div className="tabs">
         {[
           { id: "podaci", label: "Podaci", icon: Buildings },
+          { id: "objekti", label: "Objekti", icon: Buildings },
           { id: "zaposleni", label: `Zaposleni (${employees.length})`, icon: Users },
           { id: "dokumenti", label: `Dokumenti (${docs.length})`, icon: FileText },
         ].map((t) => {
@@ -164,7 +165,7 @@ export default function CompanyDetail() {
               ["Djelatnost", company.djelatnost || "—"],
               ["Šifra djelatnosti", company.sifra_djelatnosti || "—"],
             ]} />
-            <InfoBlock title="Adresa i kontakt" items={[
+            <InfoBlock title="Registracijska adresa (sjedište)" items={[
               ["Adresa", company.adresa || "—"],
               ["Grad", company.grad || "—"],
               ["Telefon", company.telefon || "—"],
@@ -188,7 +189,14 @@ export default function CompanyDetail() {
               {company.napomena}
             </div>
           )}
+          <div style={{ marginTop: 20, padding: 12, background: "#eff6ff", border: "1px solid #bfdbfe", borderRadius: 8, fontSize: 12.5, color: "#1e40af" }}>
+            💡 <b>Sjedište</b> je registracijska adresa firme. Konkretna mjesta poslovanja (hoteli, restorani, prodavnice) dodaj kao zasebne <b>Objekte</b> u sljedećem tabu.
+          </div>
         </div>
+      )}
+
+      {tab === "objekti" && (
+        <ObjektiTab companyId={id} companyNaziv={company.naziv} />
       )}
 
       {tab === "zaposleni" && (
@@ -428,3 +436,136 @@ const Field = ({ label, value, onChange, testid, type = "text" }) => (
     <input className="input" type={type} value={value ?? ""} onChange={(e) => onChange(e.target.value)} data-testid={testid} />
   </div>
 );
+
+/* =================== OBJEKTI (poslovnice) =================== */
+function ObjektiTab({ companyId, companyNaziv }) {
+  const [items, setItems] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [modal, setModal] = useState(null);
+  
+  const load = async () => {
+    setLoading(true);
+    try {
+      const r = await api.get(`/companies/${companyId}/objekti`);
+      // Filtriraj samo sačuvane objekte za listu (saved=true)
+      setItems((r.data || []).filter((o) => o.saved));
+    } finally { setLoading(false); }
+  };
+  
+  useEffect(() => { load(); }, [companyId]); // eslint-disable-line
+  
+  const removeObj = async (o) => {
+    if (!confirm(`Obrisati objekat "${o.naziv_objekta}"?`)) return;
+    try {
+      await api.delete(`/companies/${companyId}/objekti/${o.id}`);
+      await load();
+    } catch (err) {
+      alert("Greška: " + (err.response?.data?.detail || err.message));
+    }
+  };
+  
+  return (
+    <div>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 14 }}>
+        <div style={{ fontSize: 13, color: "var(--text-tertiary)" }}>
+          {items.length} {items.length === 1 ? "objekat" : items.length >= 2 && items.length <= 4 ? "objekta" : "objekata"} · npr. različite poslovnice, hoteli, restorani iste firme.
+        </div>
+        <button className="btn btn-primary" onClick={() => setModal({ entry: { naziv: "" } })} data-testid="add-objekat-btn">
+          <Plus size={14} /> Novi objekat
+        </button>
+      </div>
+      
+      {loading ? <div style={{ padding: 40, textAlign: "center" }}><Spinner size={24} className="spin" /></div> : items.length === 0 ? (
+        <div className="card card-padded" style={{ textAlign: "center", padding: 50, color: "var(--text-secondary)" }}>
+          <Buildings size={36} weight="duotone" color="#94a3b8" style={{ marginBottom: 10 }} />
+          <div style={{ fontSize: 14, fontWeight: 600, marginBottom: 4 }}>Nema objekata</div>
+          <div style={{ fontSize: 12.5, color: "var(--text-tertiary)" }}>
+            Dodaj prvi objekat npr. <i>"{companyNaziv?.split(" ")[0] || "FIRMA"} 1"</i> sa zasebnom adresom.
+          </div>
+        </div>
+      ) : (
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(320px, 1fr))", gap: 12 }}>
+          {items.map((o) => (
+            <div key={o.id} className="card card-padded" style={{ position: "relative" }} data-testid={`objekat-card-${o.id}`}>
+              <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 8 }}>
+                <div style={{ fontSize: 15, fontWeight: 700, color: "var(--text-primary)", flex: 1 }}>{o.naziv_objekta}</div>
+                <div style={{ display: "flex", gap: 4 }}>
+                  <button className="btn btn-secondary" onClick={() => setModal({ entry: { id: o.id, naziv: o.naziv_objekta, adresa: o.adresa_objekta, grad: o.grad, telefon: o.telefon, sifra_djelatnosti: o.sifra_djelatnosti, napomena: o.napomena } })} style={{ padding: "4px 8px" }}>
+                    <PencilSimple size={12} />
+                  </button>
+                  <button className="btn btn-secondary" onClick={() => removeObj(o)} style={{ padding: "4px 8px", color: "#ef4444" }}>
+                    <Trash size={12} />
+                  </button>
+                </div>
+              </div>
+              <div style={{ fontSize: 12.5, color: "var(--text-secondary)", lineHeight: 1.6 }}>
+                {o.adresa_objekta && <div>📍 {o.adresa_objekta}{o.grad ? `, ${o.grad}` : ""}</div>}
+                {o.telefon && <div>📞 {o.telefon}</div>}
+                {o.sifra_djelatnosti && <div>🏷️ Šifra: {o.sifra_djelatnosti}</div>}
+                {o.napomena && <div style={{ marginTop: 6, padding: 6, background: "#f8fafc", borderRadius: 4, fontSize: 11.5, color: "var(--text-tertiary)" }}>{o.napomena}</div>}
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+      
+      {modal && <ObjektModal companyId={companyId} entry={modal.entry} onClose={() => setModal(null)} onSaved={() => { setModal(null); load(); }} />}
+    </div>
+  );
+}
+
+function ObjektModal({ companyId, entry, onClose, onSaved }) {
+  const isNew = !entry.id;
+  const [form, setForm] = useState({
+    naziv: entry.naziv || "",
+    adresa: entry.adresa || "",
+    grad: entry.grad || "",
+    telefon: entry.telefon || "",
+    sifra_djelatnosti: entry.sifra_djelatnosti || "",
+    napomena: entry.napomena || "",
+  });
+  const [saving, setSaving] = useState(false);
+  
+  const save = async () => {
+    if (!form.naziv.trim()) { alert("Naziv objekta je obavezan."); return; }
+    setSaving(true);
+    try {
+      if (isNew) await api.post(`/companies/${companyId}/objekti`, form);
+      else await api.put(`/companies/${companyId}/objekti/${entry.id}`, form);
+      onSaved();
+    } catch (err) {
+      alert("Greška: " + (err.response?.data?.detail || err.message));
+    } finally { setSaving(false); }
+  };
+  
+  return (
+    <div className="modal-backdrop" onClick={onClose}>
+      <div className="modal animate-slide-up" onClick={(e) => e.stopPropagation()} style={{ maxWidth: 560 }}>
+        <div className="modal-header">
+          <div className="modal-title">{isNew ? "Novi objekat" : "Izmijeni objekat"}</div>
+          <button onClick={onClose} style={{ border: "none", background: "transparent", padding: 6 }}><X size={18} /></button>
+        </div>
+        <div className="modal-body" style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
+          <Field label="Naziv objekta *" value={form.naziv} onChange={(v) => setForm({ ...form, naziv: v })} testid="obj-naziv" />
+          <Field label="Telefon" value={form.telefon} onChange={(v) => setForm({ ...form, telefon: v })} testid="obj-telefon" />
+          <div className="field-group" style={{ gridColumn: "1 / -1" }}>
+            <label className="field-label">Adresa</label>
+            <input className="input" value={form.adresa} onChange={(e) => setForm({ ...form, adresa: e.target.value })} placeholder="Npr. Bulevar Šahmanovića br. 5" data-testid="obj-adresa" />
+          </div>
+          <Field label="Grad" value={form.grad} onChange={(v) => setForm({ ...form, grad: v })} testid="obj-grad" />
+          <Field label="Šifra djelatnosti" value={form.sifra_djelatnosti} onChange={(v) => setForm({ ...form, sifra_djelatnosti: v })} testid="obj-sd" />
+          <div className="field-group" style={{ gridColumn: "1 / -1" }}>
+            <label className="field-label">Napomena</label>
+            <textarea className="input" rows={2} value={form.napomena} onChange={(e) => setForm({ ...form, napomena: e.target.value })} placeholder="Opciono - npr. tip objekta, kapacitet..." />
+          </div>
+        </div>
+        <div className="modal-footer">
+          <button className="btn btn-secondary" onClick={onClose}>Odustani</button>
+          <button className="btn btn-primary" onClick={save} disabled={saving} data-testid="obj-save-btn">
+            {saving ? <Spinner size={14} className="spin" /> : <Check size={14} />} Sačuvaj
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}

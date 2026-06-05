@@ -1672,6 +1672,15 @@ def _build_replacements(company: dict, employee: Optional[dict], agency: dict, c
         adresa_full = f"{company_adresa}, {company_grad}".strip(", ") if (company_adresa or company_grad) else "____________"
         naziv_objekta_val = company.get("naziv_skraceni") or company_naziv or "____________"
         
+        # Ako je u custom poljima dat objekat, koristi ga umjesto sjedišta firme
+        custom_objekat_naziv = (custom.get("naziv_objekta") or "").strip()
+        custom_objekat_adresa = (custom.get("adresa_objekta") or "").strip()
+        if custom_objekat_naziv:
+            naziv_objekta_val = custom_objekat_naziv
+        if custom_objekat_adresa:
+            # Adresa firme se mijenja adresom objekta za ovaj dokument
+            adresa_full = custom_objekat_adresa
+        
         # Glavni placeholder mappings (case-sensitive, zagrade)
         repl["(NAZIV_FIRME)"] = company_naziv or "____________"
         repl["NAZIV_FIRME"] = company_naziv or "____________"  # bez zagrada (HRANA P8)
@@ -2483,14 +2492,33 @@ async def bulk_generate_documents(
 
 @api_router.get("/companies/{company_id}/objekti")
 async def list_company_objects(company_id: str, username: str = Depends(get_current_user)):
-    """Vraća listu prethodno korišćenih naziva objekata za datu firmu (iz istorije prijava)."""
+    """Lista objekata (poslovnica/mjesta poslovanja) za firmu.
+    Vraća prvo ručno-sačuvane objekte iz company_objekti kolekcije, zatim historijske
+    nazive iz prijava (dedupe) kao dodatne suggestion-e."""
+    # Ručno sačuvani objekti
+    saved = await db.company_objekti.find({"company_id": company_id}, {"_id": 0}).sort("naziv", 1).to_list(200)
+    
+    seen = {}
+    for o in saved:
+        no = (o.get("naziv") or "").strip()
+        if no:
+            seen[no] = {
+                "id": o.get("id"),
+                "naziv_objekta": no,
+                "adresa_objekta": (o.get("adresa") or "").strip(),
+                "grad": o.get("grad", ""),
+                "telefon": o.get("telefon", ""),
+                "sifra_djelatnosti": o.get("sifra_djelatnosti", ""),
+                "napomena": o.get("napomena", ""),
+                "saved": True,
+                "last_used": o.get("updated_at", ""),
+            }
+    
+    # Historijski (iz prijava) — samo oni koji nisu već u listi
     docs = await db.generated_documents.find(
         {"company_id": company_id, "custom_fields.naziv_objekta": {"$exists": True, "$ne": ""}},
         {"_id": 0, "custom_fields": 1, "created_at": 1}
     ).sort("created_at", -1).limit(50).to_list(length=50)
-    
-    # Deduplicate by naziv_objekta, preserve latest adresa_objekta
-    seen = {}
     for d in docs:
         cf = d.get("custom_fields") or {}
         no = (cf.get("naziv_objekta") or "").strip()
@@ -2498,9 +2526,71 @@ async def list_company_objects(company_id: str, username: str = Depends(get_curr
             seen[no] = {
                 "naziv_objekta": no,
                 "adresa_objekta": (cf.get("adresa_objekta") or "").strip(),
+                "saved": False,
                 "last_used": d.get("created_at", ""),
             }
     return list(seen.values())
+
+
+class CompanyObjekat(BaseModel):
+    naziv: str
+    adresa: str = ""
+    grad: str = ""
+    telefon: str = ""
+    sifra_djelatnosti: str = ""
+    napomena: str = ""
+
+
+@api_router.post("/companies/{company_id}/objekti")
+async def create_company_objekat(company_id: str, req: CompanyObjekat, username: str = Depends(get_current_user)):
+    # Provjeri da firma postoji
+    co = await db.companies.find_one({"id": company_id}, {"_id": 0, "id": 1})
+    if not co:
+        raise HTTPException(404, "Firma nije pronađena.")
+    if not req.naziv.strip():
+        raise HTTPException(400, "Naziv objekta je obavezan.")
+    rec = {
+        "id": str(uuid.uuid4()),
+        "company_id": company_id,
+        "naziv": req.naziv.strip(),
+        "adresa": req.adresa.strip(),
+        "grad": req.grad.strip(),
+        "telefon": req.telefon.strip(),
+        "sifra_djelatnosti": req.sifra_djelatnosti.strip(),
+        "napomena": req.napomena.strip(),
+        "created_at": datetime.now(timezone.utc).isoformat(),
+        "updated_at": datetime.now(timezone.utc).isoformat(),
+    }
+    await db.company_objekti.insert_one(dict(rec))
+    return rec
+
+
+@api_router.put("/companies/{company_id}/objekti/{objekat_id}")
+async def update_company_objekat(company_id: str, objekat_id: str, req: CompanyObjekat, username: str = Depends(get_current_user)):
+    updates = {
+        "naziv": req.naziv.strip(),
+        "adresa": req.adresa.strip(),
+        "grad": req.grad.strip(),
+        "telefon": req.telefon.strip(),
+        "sifra_djelatnosti": req.sifra_djelatnosti.strip(),
+        "napomena": req.napomena.strip(),
+        "updated_at": datetime.now(timezone.utc).isoformat(),
+    }
+    res = await db.company_objekti.update_one(
+        {"id": objekat_id, "company_id": company_id},
+        {"$set": updates},
+    )
+    if res.matched_count == 0:
+        raise HTTPException(404, "Objekat nije pronađen.")
+    return {"id": objekat_id, **updates}
+
+
+@api_router.delete("/companies/{company_id}/objekti/{objekat_id}")
+async def delete_company_objekat(company_id: str, objekat_id: str, username: str = Depends(get_current_user)):
+    res = await db.company_objekti.delete_one({"id": objekat_id, "company_id": company_id})
+    if res.deleted_count == 0:
+        raise HTTPException(404, "Objekat nije pronađen.")
+    return {"success": True}
 
 
 @api_router.post("/documents/generate-aneks")
