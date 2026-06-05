@@ -235,42 +235,110 @@ function MjesecneNaknade() {
 
 function PricingPanel({ pricing, onClose, onSaved }) {
   const [rows, setRows] = useState(pricing);
+  const [expanded, setExpanded] = useState({});
+  
+  useEffect(() => { setRows(pricing); }, [pricing]);
   
   const save = async (cid, fee) => {
-    await api.put(`/finance/pricing/${cid}`, { company_id: cid, monthly_fee: Number(fee) || 0 });
-    onSaved();
+    try {
+      await api.put(`/finance/pricing/${cid}`, { company_id: cid, monthly_fee: Number(fee) || 0 });
+      onSaved();
+    } catch (err) { console.warn(err); }
+  };
+  
+  const saveObjekat = async (cid, oid, fee) => {
+    try {
+      await api.put(`/finance/pricing/objekat/${oid}`, { objekat_id: oid, company_id: cid, monthly_fee: Number(fee) || 0 });
+      onSaved();
+    } catch (err) { console.warn(err); }
   };
   
   return (
     <div style={{ background: "white", border: "1px solid var(--border)", borderRadius: 10, padding: 16, marginBottom: 14 }}>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
-        <h3 style={{ margin: 0, fontSize: 14, fontWeight: 600 }}>Standardni mjesečni cjenovnik po firmi</h3>
+        <h3 style={{ margin: 0, fontSize: 14, fontWeight: 600 }}>Standardni mjesečni cjenovnik po firmi i objektu</h3>
         <button onClick={onClose} style={{ background: "none", border: "none", cursor: "pointer", padding: 4 }}><X size={16} /></button>
       </div>
-      <div style={{ maxHeight: 350, overflow: "auto" }}>
+      <div style={{ maxHeight: 420, overflow: "auto" }}>
         <table style={{ width: "100%", fontSize: 12.5 }}>
           <thead><tr style={{ background: "#f8fafc" }}>
-            <th style={{ padding: 8, textAlign: "left" }}>Firma</th>
-            <th style={{ padding: 8, textAlign: "left", width: 120 }}>Mjesečno (€)</th>
+            <th style={{ padding: 8, textAlign: "left", width: 24 }}></th>
+            <th style={{ padding: 8, textAlign: "left" }}>Firma / Objekat</th>
+            <th style={{ padding: 8, textAlign: "right", width: 120 }}>Mjesečno (€)</th>
+            <th style={{ padding: 8, textAlign: "right", width: 100 }}>Ukupno (€)</th>
           </tr></thead>
           <tbody>
-            {rows.map((r) => (
-              <tr key={r.company_id} style={{ borderBottom: "1px solid var(--border-light)" }}>
-                <td style={{ padding: 6 }}>{r.naziv}</td>
-                <td style={{ padding: 6 }}>
-                  <input
-                    className="input"
-                    type="number" step="0.01"
-                    value={r.monthly_fee ?? 0}
-                    onChange={(e) => setRows(rows.map((x) => x.company_id === r.company_id ? { ...x, monthly_fee: Number(e.target.value) } : x))}
-                    onBlur={(e) => save(r.company_id, e.target.value)}
-                    style={{ padding: "4px 8px", fontSize: 12.5, height: 28 }}
-                  />
-                </td>
-              </tr>
-            ))}
+            {rows.map((r) => {
+              const hasObj = (r.objekti || []).length > 0;
+              const isOpen = !!expanded[r.company_id];
+              return (
+                <>
+                  <tr key={r.company_id} style={{ borderBottom: "1px solid var(--border-light)", background: hasObj && isOpen ? "#f8fafc" : "white" }}>
+                    <td style={{ padding: 6, textAlign: "center" }}>
+                      {hasObj && (
+                        <button
+                          onClick={() => setExpanded({ ...expanded, [r.company_id]: !isOpen })}
+                          style={{ background: "none", border: "none", cursor: "pointer", padding: 2, fontSize: 13 }}
+                          title={isOpen ? "Sakrij objekte" : "Prikaži objekte"}
+                          data-testid={`expand-${r.company_id}`}
+                        >
+                          {isOpen ? "▾" : "▸"}
+                        </button>
+                      )}
+                    </td>
+                    <td style={{ padding: 6 }}>
+                      <div style={{ fontWeight: 600 }}>{r.naziv}</div>
+                      {hasObj && <div style={{ fontSize: 11, color: "var(--text-tertiary)" }}>{r.objekti.length} objek{r.objekti.length === 1 ? "at" : r.objekti.length <= 4 ? "ta" : "ata"}</div>}
+                    </td>
+                    <td style={{ padding: 6, textAlign: "right" }}>
+                      <input
+                        className="input"
+                        type="number" step="0.01"
+                        value={r.monthly_fee ?? 0}
+                        onChange={(e) => setRows(rows.map((x) => x.company_id === r.company_id ? { ...x, monthly_fee: Number(e.target.value) } : x))}
+                        onBlur={(e) => save(r.company_id, e.target.value)}
+                        style={{ padding: "4px 8px", fontSize: 12.5, height: 28, textAlign: "right" }}
+                        title="Bazna cijena firme (bez objekata)"
+                      />
+                    </td>
+                    <td style={{ padding: 6, textAlign: "right", fontWeight: 600, color: r.total_fee > 0 ? "#10b981" : "var(--text-tertiary)" }}>
+                      {Number(r.total_fee || r.monthly_fee || 0).toFixed(2)}
+                    </td>
+                  </tr>
+                  {hasObj && isOpen && r.objekti.map((o) => (
+                    <tr key={o.objekat_id} style={{ borderBottom: "1px solid var(--border-light)", background: "#fdfdfd" }}>
+                      <td></td>
+                      <td style={{ padding: "5px 6px 5px 26px", fontSize: 12, color: "var(--text-secondary)" }}>
+                        ↳ {o.naziv}{o.adresa ? <span style={{ color: "var(--text-tertiary)", fontSize: 11 }}> · {o.adresa}</span> : null}
+                      </td>
+                      <td style={{ padding: 6, textAlign: "right" }}>
+                        <input
+                          className="input"
+                          type="number" step="0.01"
+                          value={o.monthly_fee ?? 0}
+                          onChange={(e) => {
+                            const nv = Number(e.target.value);
+                            setRows(rows.map((x) => {
+                              if (x.company_id !== r.company_id) return x;
+                              return { ...x, objekti: x.objekti.map((xo) => xo.objekat_id === o.objekat_id ? { ...xo, monthly_fee: nv } : xo) };
+                            }));
+                          }}
+                          onBlur={(e) => saveObjekat(r.company_id, o.objekat_id, e.target.value)}
+                          style={{ padding: "4px 8px", fontSize: 12.5, height: 28, textAlign: "right" }}
+                          data-testid={`obj-fee-${o.objekat_id}`}
+                        />
+                      </td>
+                      <td></td>
+                    </tr>
+                  ))}
+                </>
+              );
+            })}
           </tbody>
         </table>
+      </div>
+      <div style={{ marginTop: 10, fontSize: 11, color: "var(--text-tertiary)" }}>
+        💡 <i>Mjesečno na firmi</i> je bazna cijena (npr. za sjedište). Svaki objekat ima svoju cijenu. <i>Ukupno</i> = bazna + zbir svih objekata.
       </div>
     </div>
   );

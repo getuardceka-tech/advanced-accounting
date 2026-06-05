@@ -7,6 +7,7 @@ import {
 import api, { getToken, API } from "@/lib/api";
 
 const empEmpty = {
+  objekat_id: "",
   ime: "", prezime: "", jmbg: "", licna_karta: "", adresa: "", grad: "",
   pozicija: "", strucna_sprema: "", plata_bruto: 0, plata_neto: 0,
   datum_pocetka: "", datum_kraja: "", datum_prestanka: "",
@@ -20,6 +21,7 @@ export default function CompanyDetail() {
   const [company, setCompany] = useState(null);
   const [tab, setTab] = useState("podaci");
   const [employees, setEmployees] = useState([]);
+  const [objekti, setObjekti] = useState([]);
   const [docs, setDocs] = useState([]);
   const [empModalOpen, setEmpModalOpen] = useState(false);
   const [empForm, setEmpForm] = useState(empEmpty);
@@ -29,14 +31,17 @@ export default function CompanyDetail() {
 
   const load = async () => {
     try {
-      const [c, e, d] = await Promise.all([
+      const [c, e, d, o] = await Promise.all([
         api.get(`/companies/${id}`),
         api.get(`/employees?company_id=${id}`),
         api.get(`/documents?company_id=${id}`),
+        api.get(`/companies/${id}/objekti`),
       ]);
       setCompany(c.data);
       setEmployees(e.data);
       setDocs(d.data);
+      // samo ručno-sačuvani objekti (saved=true)
+      setObjekti((o.data || []).filter((x) => x.saved));
     } catch (err) {
       console.error(err);
     }
@@ -226,6 +231,7 @@ export default function CompanyDetail() {
                   <tr>
                     <th>Ime i prezime</th>
                     <th>JMBG</th>
+                    <th>Objekat</th>
                     <th>Pozicija</th>
                     <th>Plata (€)</th>
                     <th>Ugovor</th>
@@ -240,6 +246,13 @@ export default function CompanyDetail() {
                         {e.adresa && <div style={{ fontSize: 11.5, color: "var(--text-tertiary)" }}>{e.adresa}</div>}
                       </td>
                       <td style={{ fontFamily: "JetBrains Mono, monospace", fontSize: 12.5 }}>{e.jmbg || "—"}</td>
+                      <td style={{ fontSize: 12 }}>
+                        {e.objekat_naziv ? (
+                          <span style={{ display: "inline-block", padding: "2px 8px", background: "#dbeafe", color: "#1e40af", borderRadius: 10, fontSize: 11.5, fontWeight: 500 }}>
+                            {e.objekat_naziv}
+                          </span>
+                        ) : <span style={{ color: "var(--text-tertiary)" }}>—</span>}
+                      </td>
                       <td style={{ fontSize: 12.5 }}>{e.pozicija || "—"}</td>
                       <td style={{ fontFamily: "JetBrains Mono, monospace", fontSize: 12.5 }}>
                         {e.plata_bruto ? `${e.plata_bruto.toFixed(2)}` : "—"}
@@ -341,6 +354,7 @@ export default function CompanyDetail() {
           form={empForm}
           setForm={setEmpForm}
           editing={editingEmp}
+          objekti={objekti}
           onSave={saveEmp}
           onClose={() => setEmpModalOpen(false)}
           saving={empSaving}
@@ -367,7 +381,7 @@ const InfoBlock = ({ title, items }) => (
   </div>
 );
 
-function EmployeeModal({ form, setForm, editing, onSave, onClose, saving, error }) {
+function EmployeeModal({ form, setForm, editing, objekti = [], onSave, onClose, saving, error }) {
   const u = (k, v) => setForm({ ...form, [k]: v });
 
   return (
@@ -383,6 +397,22 @@ function EmployeeModal({ form, setForm, editing, onSave, onClose, saving, error 
           <div style={{ padding: "10px 12px", background: "#f8fafc", borderRadius: 8, marginBottom: 16, fontSize: 12.5, color: "var(--text-secondary)", borderLeft: "3px solid #2563eb" }}>
             💡 <strong>Pozicija (radno mjesto)</strong> se automatski povezuje sa ugovorima o radu, odlukama o pauzi, godišnjem odmoru i drugim dokumentima — popunite je da izbjegnete ručno unošenje.
           </div>
+          {objekti.length > 0 && (
+            <div className="field-group" style={{ marginBottom: 14 }}>
+              <label className="field-label">Objekat (poslovnica)</label>
+              <select className="select" value={form.objekat_id || ""} onChange={(e) => u("objekat_id", e.target.value)} data-testid="emp-objekat">
+                <option value="">— Sjedište (bez objekta) —</option>
+                {objekti.map((o) => (
+                  <option key={o.id} value={o.id}>
+                    {o.naziv_objekta}{o.adresa_objekta ? ` · ${o.adresa_objekta}` : ""}
+                  </option>
+                ))}
+              </select>
+              <div style={{ fontSize: 11, color: "var(--text-tertiary)", marginTop: 4 }}>
+                Ako firma ima više poslovnica/hotela/restorana, odaberi za koji radi ovaj zaposleni.
+              </div>
+            </div>
+          )}
           <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 14 }}>
             <Field label="Ime *" value={form.ime} onChange={(v) => u("ime", v)} testid="emp-ime" />
             <Field label="Prezime *" value={form.prezime} onChange={(v) => u("prezime", v)} testid="emp-prezime" />

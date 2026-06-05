@@ -1,5 +1,5 @@
-import { useEffect, useState } from "react";
-import { CalendarBlank, Check, Printer } from "@phosphor-icons/react";
+import { useEffect, useMemo, useState } from "react";
+import { CalendarBlank, Check, Printer, MagnifyingGlass, X } from "@phosphor-icons/react";
 import api from "@/lib/api";
 
 const months = [
@@ -20,6 +20,7 @@ export default function PdvTracking() {
   const [data, setData] = useState([]);
   const [loading, setLoading] = useState(true);
   const [view, setView] = useState("both"); // pdv/ioppd/both
+  const [search, setSearch] = useState("");
 
   const load = async () => {
     setLoading(true);
@@ -53,6 +54,16 @@ export default function PdvTracking() {
 
   const pdvRows = data.filter((r) => r.pdv_obveznik);
   const ioppdRows = data.filter((r) => r.ioppd_obveznik);
+  
+  // Pretraga
+  const filteredData = useMemo(() => {
+    if (!search.trim()) return data;
+    const q = search.toLowerCase().trim();
+    return data.filter((r) =>
+      (r.company_naziv || "").toLowerCase().includes(q) ||
+      (r.pib || "").includes(q)
+    );
+  }, [data, search]);
 
   const pdvDone = pdvRows.filter((r) => r.pdv_status === "predato").length;
   const pdvInProgress = pdvRows.filter((r) => r.pdv_status === "u_toku").length;
@@ -115,6 +126,28 @@ export default function PdvTracking() {
         </div>
 
         <div style={{ flex: 1 }} />
+        
+        <div style={{ position: "relative", minWidth: 240 }}>
+          <MagnifyingGlass size={14} style={{ position: "absolute", left: 10, top: 11, color: "var(--text-tertiary)" }} />
+          <input
+            className="input"
+            placeholder="Pretraži firmu po nazivu ili PIB-u..."
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            style={{ paddingLeft: 30, paddingRight: search ? 28 : 12, height: 34, fontSize: 12.5 }}
+            data-testid="pdv-search"
+          />
+          {search && (
+            <button
+              onClick={() => setSearch("")}
+              style={{ position: "absolute", right: 6, top: 8, background: "none", border: "none", cursor: "pointer", padding: 4, color: "var(--text-tertiary)" }}
+              title="Očisti pretragu"
+              data-testid="pdv-search-clear"
+            >
+              <X size={13} />
+            </button>
+          )}
+        </div>
 
         <div style={{ display: "flex", gap: 14, fontSize: 12.5, color: "var(--text-secondary)" }}>
           <div>
@@ -163,7 +196,7 @@ export default function PdvTracking() {
               </tr>
             </thead>
             <tbody>
-              {data.map((row, idx) => {
+              {filteredData.map((row, idx) => {
                 if (view === "pdv" && !row.pdv_obveznik) return null;
                 if (view === "ioppd" && !row.ioppd_obveznik) return null;
                 return (

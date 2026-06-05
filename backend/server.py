@@ -137,6 +137,7 @@ class Employee(BaseModel):
     model_config = ConfigDict(extra="ignore")
     id: str = Field(default_factory=lambda: str(uuid.uuid4()))
     company_id: str
+    objekat_id: str = ""  # opciono — za koji objekat (poslovnicu) radi
     ime: str
     prezime: str
     jmbg: str = ""
@@ -163,6 +164,7 @@ class Employee(BaseModel):
 
 class EmployeeCreate(BaseModel):
     company_id: str
+    objekat_id: Optional[str] = ""
     ime: str
     prezime: str
     jmbg: Optional[str] = ""
@@ -723,6 +725,14 @@ async def list_employees(
             {"jmbg": {"$regex": regex, "$options": "i"}},
         ]
     employees = await db.employees.find(query, {"_id": 0}).sort("prezime", 1).to_list(2000)
+    # Pridruži naziv objekta
+    obj_ids = list({(e.get("objekat_id") or "") for e in employees if e.get("objekat_id")})
+    obj_map = {}
+    if obj_ids:
+        objs = await db.company_objekti.find({"id": {"$in": obj_ids}}, {"_id": 0, "id": 1, "naziv": 1}).to_list(500)
+        obj_map = {o["id"]: o["naziv"] for o in objs}
+    for e in employees:
+        e["objekat_naziv"] = obj_map.get(e.get("objekat_id") or "", "")
     return employees
 
 @api_router.get("/employees/{employee_id}")
@@ -2997,7 +3007,14 @@ async def search_sifre(q: Optional[str] = None, limit: int = 50, username: str =
 
 class CompanyPricing(BaseModel):
     company_id: str
-    monthly_fee: float = 0.0  # standardna mjesečna naknada (EUR)
+    monthly_fee: float = 0.0  # standardna mjesečna naknada (EUR) - za firmu (bez objekata)
+    napomena: str = ""
+
+
+class ObjekatPricing(BaseModel):
+    objekat_id: str
+    company_id: str
+    monthly_fee: float = 0.0  # cijena za konkretan objekat
     napomena: str = ""
 
 
@@ -3035,22 +3052,48 @@ class Expense(BaseModel):
 
 @api_router.get("/finance/pricing")
 async def list_pricing(username: str = Depends(get_current_user)):
-    """Cjenovnik za sve firme + auto-fetch firme koje još nemaju cijenu."""
+    """Cjenovnik za sve firme + svaki objekat ima zasebnu cijenu (ako je postavljena).
+    monthly_fee na firmi = bazna cijena. Ukupno za firmu = bazna + zbir objekata."""
     pricings = await db.company_pricing.find({}, {"_id": 0}).to_list(500)
     pricing_by_cid = {p["company_id"]: p for p in pricings}
+    
+    obj_pricings = await db.objekat_pricing.find({}, {"_id": 0}).to_list(2000)
+    obj_pricing_by_oid = {p["objekat_id"]: p for p in obj_pricings}
+    
+    objekti_all = await db.company_objekti.find({}, {"_id": 0}).to_list(2000)
+    obj_by_cid: Dict[str, List[Dict]] = {}
+    for o in objekti_all:
+        obj_by_cid.setdefault(o["company_id"], []).append(o)
     
     companies = await db.companies.find({}, {"_id": 0, "id": 1, "naziv": 1, "naziv_skraceni": 1, "pib": 1}).to_list(500)
     
     out = []
     for c in companies:
         p = pricing_by_cid.get(c["id"], {})
+        base_fee = float(p.get("monthly_fee", 0.0) or 0)
+        # Objekti za ovu firmu
+        objs = []
+        objs_sum = 0.0
+        for o in obj_by_cid.get(c["id"], []):
+            op = obj_pricing_by_oid.get(o["id"], {})
+            obj_fee = float(op.get("monthly_fee", 0.0) or 0)
+            objs_sum += obj_fee
+            objs.append({
+                "objekat_id": o["id"],
+                "naziv": o["naziv"],
+                "adresa": o.get("adresa", ""),
+                "monthly_fee": obj_fee,
+                "napomena": op.get("napomena", ""),
+            })
         out.append({
             "company_id": c["id"],
             "naziv": c["naziv"],
             "naziv_skraceni": c.get("naziv_skraceni", ""),
             "pib": c.get("pib", ""),
-            "monthly_fee": p.get("monthly_fee", 0.0),
+            "monthly_fee": base_fee,
             "napomena": p.get("napomena", ""),
+            "objekti": objs,
+            "total_fee": round(base_fee + objs_sum, 2),
         })
     return out
 
@@ -3065,6 +3108,23 @@ async def set_pricing(company_id: str, req: CompanyPricing, username: str = Depe
     }
     await db.company_pricing.update_one(
         {"company_id": company_id},
+        {"$set": rec},
+        upsert=True,
+    )
+    return rec
+
+
+@api_router.put("/finance/pricing/objekat/{objekat_id}")
+async def set_objekat_pricing(objekat_id: str, req: ObjekatPricing, username: str = Depends(get_current_user)):
+    rec = {
+        "objekat_id": objekat_id,
+        "company_id": req.company_id,
+        "monthly_fee": req.monthly_fee,
+        "napomena": req.napomena or "",
+        "updated_at": datetime.now(timezone.utc).isoformat(),
+    }
+    await db.objekat_pricing.update_one(
+        {"objekat_id": objekat_id},
         {"$set": rec},
         upsert=True,
     )
@@ -3096,13 +3156,21 @@ async def list_payments(
         # Generiraj virtuelne stavke za firme koje nemaju zapis
         pricings = await db.company_pricing.find({}, {"_id": 0}).to_list(500)
         pricing_by_cid = {p["company_id"]: p for p in pricings}
+        # Učitaj i cijene objekata (suma se dodaje na bazu)
+        obj_pricings = await db.objekat_pricing.find({}, {"_id": 0}).to_list(2000)
+        obj_sum_by_cid: Dict[str, float] = {}
+        for op in obj_pricings:
+            cid_local = op.get("company_id", "")
+            obj_sum_by_cid[cid_local] = obj_sum_by_cid.get(cid_local, 0.0) + float(op.get("monthly_fee", 0) or 0)
         existing_cids = {p["company_id"] for p in existing}
         companies = await db.companies.find({}, {"_id": 0, "id": 1, "naziv": 1, "naziv_skraceni": 1}).to_list(500)
         
         out = list(existing)
         for c in companies:
             if c["id"] not in existing_cids:
-                default_fee = pricing_by_cid.get(c["id"], {}).get("monthly_fee", 0.0)
+                base_fee = pricing_by_cid.get(c["id"], {}).get("monthly_fee", 0.0) or 0
+                obj_sum = obj_sum_by_cid.get(c["id"], 0.0)
+                default_fee = round(float(base_fee) + obj_sum, 2)
                 out.append({
                     "id": None,
                     "company_id": c["id"],
@@ -3355,9 +3423,21 @@ async def list_overdue(days: int = 30, username: str = Depends(get_current_user)
     """Lista firmi sa neplaćenim mjesečnim naknadama starijim od X dana.
     Računa se: za svaki mjesec prošle/tekuće godine, ako je rok prošao i firma nije platila."""
     today = datetime.now(timezone.utc)
-    # Cjenovnik
-    pricings = await db.company_pricing.find({"monthly_fee": {"$gt": 0}}, {"_id": 0}).to_list(500)
-    pricing_by_cid = {p["company_id"]: p for p in pricings}
+    # Cjenovnik (firma) + objekat pricing
+    pricings = await db.company_pricing.find({}, {"_id": 0}).to_list(500)
+    base_by_cid = {p["company_id"]: float(p.get("monthly_fee", 0) or 0) for p in pricings}
+    obj_pricings = await db.objekat_pricing.find({}, {"_id": 0}).to_list(2000)
+    obj_sum_by_cid: Dict[str, float] = {}
+    for op in obj_pricings:
+        cid_local = op.get("company_id", "")
+        obj_sum_by_cid[cid_local] = obj_sum_by_cid.get(cid_local, 0.0) + float(op.get("monthly_fee", 0) or 0)
+    # total fee = base + sum objekti
+    all_cids = set(base_by_cid.keys()) | set(obj_sum_by_cid.keys())
+    pricing_by_cid: Dict[str, Dict] = {}
+    for cid in all_cids:
+        total = round(base_by_cid.get(cid, 0.0) + obj_sum_by_cid.get(cid, 0.0), 2)
+        if total > 0:
+            pricing_by_cid[cid] = {"company_id": cid, "monthly_fee": total}
     if not pricing_by_cid:
         return []
     
@@ -3471,7 +3551,18 @@ async def finance_per_client(godina: int = None, username: str = Depends(get_cur
     
     # Cjenovnik (mjesečne naknade po firmi) — koristi se da bismo izračunali OČEKIVANE prihode
     pricings = await db.company_pricing.find({}, {"_id": 0}).to_list(500)
-    pricing_by_cid = {p["company_id"]: p for p in pricings if (p.get("monthly_fee") or 0) > 0}
+    base_by_cid = {p["company_id"]: float(p.get("monthly_fee", 0) or 0) for p in pricings}
+    obj_pricings = await db.objekat_pricing.find({}, {"_id": 0}).to_list(2000)
+    obj_sum_by_cid: Dict[str, float] = {}
+    for op in obj_pricings:
+        cid_local = op.get("company_id", "")
+        obj_sum_by_cid[cid_local] = obj_sum_by_cid.get(cid_local, 0.0) + float(op.get("monthly_fee", 0) or 0)
+    all_cids = set(base_by_cid.keys()) | set(obj_sum_by_cid.keys())
+    pricing_by_cid: Dict[str, Dict] = {}
+    for cid in all_cids:
+        total = round(base_by_cid.get(cid, 0.0) + obj_sum_by_cid.get(cid, 0.0), 2)
+        if total > 0:
+            pricing_by_cid[cid] = {"company_id": cid, "monthly_fee": total}
     
     # Prihodi: mjesečne uplate (naplaćene)
     payments = await db.monthly_payments.find({"godina": godina}, {"_id": 0}).to_list(5000)
