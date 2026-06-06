@@ -1527,14 +1527,48 @@ def _build_replacements(company: dict, employee: Optional[dict], agency: dict, c
         repl[f"{header_city}, {today_str}"] = f"{header_city}, ________________"
         # "Datum: 21.05.2026" (već popunjeno iz blank field) → "Datum: ____"
         repl[f"Datum: {today_str}"] = "Datum: ________________"
-        # Period korišćenja godišnjeg odmora — klijent popunjava
-        repl["01.09.2026"] = "____________"
-        repl["30.09.2026"] = "____________"
-        # Broj radnih dana — klijent popunjava (sample je "2 2" sa space-om u templateu)
-        repl["2 2 radn"] = "____ radn"
-        repl["22 radn"] = "____ radn"
-        # Broj rješenja "1/26" — klijent može ostaviti default ili popuniti
-        # Ostavi kako jeste (može se kasnije prilagoditi)
+        # Period korišćenja godišnjeg odmora — ako je klijent unijeo (go_datum_pocetka + go_broj_dana),
+        # automatski obračunaj zadnji dan (preskoči vikende = radni dani Pon-Pet)
+        go_start_iso = (custom.get("go_datum_pocetka") or "").strip()
+        go_dana_raw = custom.get("go_broj_dana")
+        try:
+            go_dana = int(go_dana_raw) if go_dana_raw not in (None, "", 0) else 0
+        except (ValueError, TypeError):
+            go_dana = 0
+        
+        go_pocetak_dmy = ""
+        go_kraj_dmy = ""
+        if go_start_iso and go_dana > 0:
+            try:
+                d = datetime.fromisoformat(go_start_iso)
+                go_pocetak_dmy = d.strftime("%d.%m.%Y")
+                # Brojanje radnih dana: start je prvi dan, ako je radni broji se
+                counted = 0
+                cur = d
+                while counted < go_dana:
+                    if cur.weekday() < 5:  # 0-4 = Pon-Pet
+                        counted += 1
+                        if counted == go_dana:
+                            break
+                    cur = cur + timedelta(days=1)
+                go_kraj_dmy = cur.strftime("%d.%m.%Y")
+            except (ValueError, TypeError):
+                go_pocetak_dmy = ""
+                go_kraj_dmy = ""
+        
+        if go_pocetak_dmy and go_kraj_dmy:
+            # Mapiraj na sample period u template-u
+            repl["01.09.2026"] = go_pocetak_dmy
+            repl["30.09.2026"] = go_kraj_dmy
+            # Broj radnih dana
+            repl["2 2 radn"] = f"{go_dana} radn"
+            repl["22 radn"] = f"{go_dana} radn"
+        else:
+            # Klijent nije unio — ostavi prazno za ručno popunjavanje
+            repl["01.09.2026"] = "____________"
+            repl["30.09.2026"] = "____________"
+            repl["2 2 radn"] = "____ radn"
+            repl["22 radn"] = "____ radn"
         # Godina dvojno korišćenja "202 6" → tekuća godina
         repl["202 6 . godinu"] = f"{datetime.now().year} godinu"
         repl["2026. godinu"] = f"{datetime.now().year}. godinu"

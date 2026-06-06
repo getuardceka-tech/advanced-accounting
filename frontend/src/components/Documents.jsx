@@ -670,8 +670,9 @@ function ExtrasOdluka({ template, values, onChange, companyId, objekatId }) {
   const isMobing = fn.includes("mobing") || fn.includes("uznemiravanj");
   const isIzjavaOdgovornost = fn.includes("izjava") && (fn.includes("odgovornost") || fn.includes("pravim"));
   const isPozajmica = fn.includes("pozajm");
+  const isRjesenjeGO = fn.includes("rjesenje") && (fn.includes("godisnj") || fn.includes("godišnj"));
   
-  const showAny = isPopust || isObavjestenjeRadno || isKomunalna || isPraznici || isTableTpl || isMobing || isIzjavaOdgovornost || isPozajmica;
+  const showAny = isPopust || isObavjestenjeRadno || isKomunalna || isPraznici || isTableTpl || isMobing || isIzjavaOdgovornost || isPozajmica || isRjesenjeGO;
   if (!showAny) return null;
   
   const u = (k, v) => onChange({ ...values, [k]: v });
@@ -685,6 +686,71 @@ function ExtrasOdluka({ template, values, onChange, companyId, objekatId }) {
       {isPraznici && <PrazniciPicker values={values} onChange={onChange} />}
       {isTableTpl && <EmployeesTablePreview companyId={companyId} objekatId={objekatId} values={values} u={u} fn={fn} />}
       {(isMobing || isIzjavaOdgovornost) && <BulkEmployeesPicker companyId={companyId} objekatId={objekatId} values={values} onChange={onChange} />}
+      {isRjesenjeGO && <RjesenjeGodisnjiInput values={values} u={u} />}
+    </div>
+  );
+}
+
+function RjesenjeGodisnjiInput({ values, u }) {
+  // Računa end date - dodaje N radnih dana (Pon-Pet) na start date
+  const computeEndDate = (startISO, brojDana) => {
+    if (!startISO || !brojDana || brojDana < 1) return "";
+    const d = new Date(startISO + "T00:00:00");
+    if (isNaN(d.getTime())) return "";
+    let counted = 0;
+    // Start date je sam prvi dan godišnjeg → broji ga ako je radni
+    while (counted < brojDana) {
+      const day = d.getDay(); // 0=Sun, 6=Sat
+      if (day !== 0 && day !== 6) {
+        counted++;
+        if (counted === brojDana) break;
+      }
+      d.setDate(d.getDate() + 1);
+    }
+    // Format DD.MM.YYYY
+    const dd = String(d.getDate()).padStart(2, "0");
+    const mm = String(d.getMonth() + 1).padStart(2, "0");
+    const yy = d.getFullYear();
+    return `${dd}.${mm}.${yy}`;
+  };
+  
+  const start = values.go_datum_pocetka || "";
+  const brojDana = values.go_broj_dana ? Number(values.go_broj_dana) : 0;
+  const endDate = computeEndDate(start, brojDana);
+  
+  const startFormatted = start ? (() => {
+    const d = new Date(start + "T00:00:00");
+    if (isNaN(d.getTime())) return "";
+    return `${String(d.getDate()).padStart(2,"0")}.${String(d.getMonth()+1).padStart(2,"0")}.${d.getFullYear()}`;
+  })() : "";
+  
+  return (
+    <div style={{ marginBottom: 12 }}>
+      <div style={{ display: "flex", alignItems: "center", gap: 8, margin: "8px 0 10px 0", paddingBottom: 6, borderBottom: "1px solid var(--border)" }}>
+        <div style={{ width: 22, height: 22, borderRadius: 6, background: "#0f172a", color: "white", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 12, fontWeight: 700 }}>GO</div>
+        <div style={{ fontSize: 13.5, fontWeight: 700, color: "var(--text-primary)", textTransform: "uppercase", letterSpacing: "0.04em" }}>Period godišnjeg odmora</div>
+      </div>
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
+        <div className="field-group">
+          <label className="field-label">Prvi dan odmora</label>
+          <input type="date" className="input" value={start} onChange={(e) => u("go_datum_pocetka", e.target.value)} data-testid="go-datum-pocetka" />
+        </div>
+        <div className="field-group">
+          <label className="field-label">Broj radnih dana</label>
+          <input type="number" min="1" max="60" className="input" value={values.go_broj_dana || ""} onChange={(e) => u("go_broj_dana", e.target.value)} placeholder="npr. 22" data-testid="go-broj-dana" />
+        </div>
+      </div>
+      {endDate && (
+        <div style={{ marginTop: 10, padding: "10px 12px", background: "#ecfdf5", border: "1px solid #6ee7b7", borderRadius: 8, fontSize: 13, color: "#065f46" }}>
+          ✓ <strong>Period:</strong> od <b>{startFormatted}</b> do <b>{endDate}</b> ({brojDana} radn{brojDana === 1 ? "i dan" : (brojDana >= 2 && brojDana <= 4) ? "a dana" : "ih dana"})
+          <div style={{ fontSize: 11, color: "#047857", marginTop: 2 }}>Vikendi (subota, nedjelja) preskačeni — računaju se samo radni dani.</div>
+        </div>
+      )}
+      {!endDate && (
+        <div style={{ marginTop: 10, fontSize: 11.5, color: "var(--text-tertiary)" }}>
+          💡 Unesite oba polja — backend automatski obračuna zadnji dan godišnjeg odmora (radni dani Pon-Pet).
+        </div>
+      )}
     </div>
   );
 }
