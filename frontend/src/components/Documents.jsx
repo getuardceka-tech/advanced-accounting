@@ -881,12 +881,12 @@ function EmployeesTablePreview({ companyId, objekatId, values, u, fn }) {
   }, [allEmployees, objekatId]);
   
   // Propagiraj filtrirane zaposlene u customFields da backend zna kojih da uključi
+  // (samo za TABLE templete - lista u jednom dokumentu, ne ZIP)
   useEffect(() => {
     if (objekatId) {
-      u("bulk_employee_ids", employees.map((e) => e.id));
+      u("table_employee_ids", employees.map((e) => e.id));
     } else {
-      // Ukloni bulk_employee_ids ako se ne filtrira po objektu
-      u("bulk_employee_ids", null);
+      u("table_employee_ids", null);
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [objekatId, allEmployees]);

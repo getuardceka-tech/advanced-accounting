@@ -2301,9 +2301,9 @@ async def generate_document(req: DocumentGenerateRequest, username: str = Depend
     if is_table_template:
         emp_query: Dict[str, Any] = {"company_id": req.company_id}
         # Ako je u custom poljima poslata lista zaposlenih (npr. filtrirana po objektu), koristi samo njih
-        bulk_ids = custom.get("bulk_employee_ids")
-        if bulk_ids and isinstance(bulk_ids, list) and len(bulk_ids) > 0:
-            emp_query["id"] = {"$in": bulk_ids}
+        table_ids = custom.get("table_employee_ids") or custom.get("bulk_employee_ids")
+        if table_ids and isinstance(table_ids, list) and len(table_ids) > 0:
+            emp_query["id"] = {"$in": table_ids}
         emp_list = await db.employees.find(emp_query, {"_id": 0}).to_list(length=500)
         # Sortiraj radnike po imenu
         emp_list.sort(key=lambda e: (e.get("ime", "") + " " + e.get("prezime", "")).strip().upper())
