@@ -912,8 +912,9 @@ SAMPLE_COMPANY_NAMES = [
     "FRIENDS CAFFE",
     # ELA&ART (OP OBRAZAC) - even though OP OBRAZAC is image-only, mapping is here for safety
     'DRUŠTVO SA OGRANIČENOM ODGOVORNOŠĆU ZA PROIZVODNJU, PROMET I USLUGE " ELA&ART " ULCINJ',
-    'DRUŠTVO SA OGRANIČENOM ODGOVORNOŠĆU ZA PROIZVODNJU,',
-    'PROMET I USLUGE " ELA&ART " ULCINJ',
+    # NOTE: NIKADA ne dodavaj split-ovane varijante poput "DRUŠTVO SA OGRANIČENOM ODGOVORNOŠĆU ZA PROIZVODNJU,"
+    # ili "PROMET I USLUGE..." kao posebne keys — prilikom zamjene sa pun nazivom (koji već sadrži ove dijelove)
+    # nastaje duplikacija: "PUN_NAZIV PROMET I USLUGE ...".
     "ELA&ART",
 ]
 
@@ -986,14 +987,16 @@ SAMPLE_EMPLOYEE_NAMES = [
     "RENATO JAKU",
     "ZIJA DODIĆ", "ZIJA DODIC",
     "ALBERT OSMANOVIC", "ALBERT OSMANOVIĆ",
+    "DAUT VELIC", "DAUT VELIĆ",
 ]
 SAMPLE_EMPLOYEE_JMBGS = [
     "1411008223029", "039066621", "3004974220012",
     "0612986223008",
+    "2602956223056",
 ]
 SAMPLE_EMPLOYEE_LK = ["I3382349M"]  # broj lične karte
 SAMPLE_EMPLOYEE_POSITIONS = [
-    "KONOBAR", "Konobar", "konobar",
+    "KONOBAR", "Konobar", "konobar", "KONOBR",
     "KUVAR", "Kuvar", "kuvar",
     "pomoćni radnik u gradjevinu",
     "pomocni radnik u gradjevinu",
@@ -1524,6 +1527,17 @@ def _build_replacements(company: dict, employee: Optional[dict], agency: dict, c
         repl[f"{header_city}, {today_str}"] = f"{header_city}, ________________"
         # "Datum: 21.05.2026" (već popunjeno iz blank field) → "Datum: ____"
         repl[f"Datum: {today_str}"] = "Datum: ________________"
+        # Period korišćenja godišnjeg odmora — klijent popunjava
+        repl["01.09.2026"] = "____________"
+        repl["30.09.2026"] = "____________"
+        # Broj radnih dana — klijent popunjava (sample je "2 2" sa space-om u templateu)
+        repl["2 2 radn"] = "____ radn"
+        repl["22 radn"] = "____ radn"
+        # Broj rješenja "1/26" — klijent može ostaviti default ili popuniti
+        # Ostavi kako jeste (može se kasnije prilagoditi)
+        # Godina dvojno korišćenja "202 6" → tekuća godina
+        repl["202 6 . godinu"] = f"{datetime.now().year} godinu"
+        repl["2026. godinu"] = f"{datetime.now().year}. godinu"
     
     # "Rješenje o prestanku radnog odnosa kad ističe ugovor o radu" → datum štampe = today;
     # datum prestanka rada = employee.datum_prestanka (već mapirano kroz `prestanak_date`)
