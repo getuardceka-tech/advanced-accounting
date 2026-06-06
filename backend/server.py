@@ -831,6 +831,14 @@ async def list_templates(username: str = Depends(get_current_user)):
 
 def _categorize_template(filename: str) -> str:
     fl = filename.lower()
+    if "akt o sistematiz" in fl or "sistematizac" in fl:
+        return "Akti o sistematizaciji"
+    if "akt o procjen" in fl or "procjena rizika" in fl or "procjeni rizik" in fl:
+        return "Akti o procjeni rizika"
+    if "zastitu od pozara" in fl or "zaštiti od požara" in fl or "zastiti od pozara" in fl:
+        return "Zaštita od požara"
+    if "zastitu na rad" in fl or "zaštitu na rad" in fl or "zastiti na rad" in fl or "zdravlj" in fl:
+        return "Zaštita na radu"
     if "ugovor" in fl:
         return "Ugovori"
     if "odluk" in fl:
@@ -988,11 +996,13 @@ SAMPLE_EMPLOYEE_NAMES = [
     "ZIJA DODIĆ", "ZIJA DODIC",
     "ALBERT OSMANOVIC", "ALBERT OSMANOVIĆ",
     "DAUT VELIC", "DAUT VELIĆ",
+    "EKREM HOT",
 ]
 SAMPLE_EMPLOYEE_JMBGS = [
     "1411008223029", "039066621", "3004974220012",
     "0612986223008",
     "2602956223056",
+    "2804974280026",
 ]
 SAMPLE_EMPLOYEE_LK = ["I3382349M"]  # broj lične karte
 SAMPLE_EMPLOYEE_POSITIONS = [
@@ -1002,6 +1012,7 @@ SAMPLE_EMPLOYEE_POSITIONS = [
     "pomocni radnik u gradjevinu",
     "NK – nekvalifikovani radnik",
     "NK - nekvalifikovani radnik",
+    "DIREKTOR", "Direktor",
 ]
 
 # Sample datumi početka rada koji se zamjenjuju sa emp.datum_pocetka
@@ -1388,6 +1399,42 @@ def _build_replacements(company: dict, employee: Optional[dict], agency: dict, c
     
     # Broj broja dokumenta - ostavi blank za korisnika
     repl["BR:10/2026"] = "BR: ___/2026"
+    
+    # ========== NOVI ŠABLONI (Akti, Odluke o zaštiti od požara/radu, Procjena rizika) ==========
+    # Sample datumi koji su today-dependent:
+    repl["01.06.2026"] = today_str
+    repl["05.06.2026"] = today_str
+    repl["01.01.2025"] = today_str
+    repl["dana 01.06.2026 godine donosi"] = f"dana {today_str} godine donosi"
+    repl["dana 01.06.2026 donosi"] = f"dana {today_str} donosi"
+    # AKT o sistematizaciji: "Broj : 1 /2025" → ostaviti blank za klijenta
+    repl["Broj : 1 /2025"] = "Broj : ___/____"
+    repl["Broj: ___/2025"] = "Broj: ___/____"
+    # AKT o sistematizaciji ugostiteljstvo - sample firma "UNICO HIJA"
+    repl['DRUŠTVO SA OGRANIČENOM ODGOVORNOŠĆU "UNICO HIJA" ZA TRGOVINU , UGOSTITELJSTVO, GRAĐEVINARSTVO I USLUGE , EXPORT- IMPORT- ULCINJ'] = company_naziv or "____________"
+    repl["UNICO HIJA"] = (company.get("naziv_skraceni") or company_naziv or "____________").strip()
+    # AKT procjene rizika za hotele — sample firma DOO HOTELI HOTI varijante
+    repl["HOTELI HOTI DOO ULCINJ"] = company_naziv if company_naziv else (company.get("naziv_skraceni") or "____________")
+    repl["HOTELI HOTI DOO"] = (company.get("naziv_skraceni") or company_naziv or "____________").strip()
+    # Skraćeni "DOO HOTEL HOTI" / "DOO HOTELI HOTI" / "DOO HOTELI HOTI ULCINJ" / "DOO HOTELI HOTI- ULCINJ"
+    naziv_skr = (company.get("naziv_skraceni") or company_naziv or "____________").strip()
+    repl["DOO HOTELI HOTI- ULCINJ"] = naziv_skr
+    repl["DOO HOTELI HOTI ULCINJ"] = naziv_skr
+    repl["DOO HOTEL HOTI"] = naziv_skr
+    repl["DOO HOTELI HOTI"] = naziv_skr
+    repl["HOTELI HOTI"] = naziv_skr
+    # PIB 03130576 → company PIB (već je u SAMPLE_PIBS ali za svaki slučaj)
+    if company.get("pib"):
+        repl["03130576"] = company["pib"]
+    # Sample employee "EKREM HOT" + JMBG "2804974280026" + radno mjesto "DIREKTOR"
+    if employee:
+        emp_full = f"{(employee.get('ime') or '').strip()} {(employee.get('prezime') or '').strip()}".strip()
+        if emp_full:
+            repl["EKREM HOT"] = emp_full
+        if employee.get("jmbg"):
+            repl["2804974280026"] = employee["jmbg"]
+        if employee.get("pozicija"):
+            repl["DIREKTOR"] = employee["pozicija"]
     
     # ========== BLANK PLACEHOLDERS (underscore lines) ==========
     # NAPOMENA: Ovi generički blank-line replacements se NE primenjuju na šablone
