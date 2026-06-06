@@ -106,6 +106,7 @@ function MjesecneNaknade() {
   const updatePayment = async (item, patch) => {
     const payload = {
       company_id: item.company_id,
+      objekat_id: item.objekat_id || "",
       godina, mjesec,
       iznos: Number(patch.iznos ?? item.iznos) || 0,
       is_paid: patch.is_paid !== undefined ? patch.is_paid : item.is_paid,
@@ -173,11 +174,24 @@ function MjesecneNaknade() {
                 const now = new Date();
                 const isPastMonth = (it.godina < now.getFullYear()) || (it.godina === now.getFullYear() && it.mjesec < now.getMonth() + 1);
                 const isOverdue = !it.is_paid && isPastMonth && (Number(it.iznos) || 0) > 0;
+                const rowKey = `${it.company_id}_${it.objekat_id || "base"}`;
+                const isObjekat = !!it.objekat_id;
                 return (
-                <tr key={it.company_id} style={{ borderBottom: "1px solid var(--border-light)", background: it.is_paid ? "#f0fdf4" : (isOverdue ? "#fef2f2" : "white") }} data-testid={`payment-row-${it.company_id}`}>
-                  <td style={{ ...td, fontWeight: 500 }}>
+                <tr key={rowKey} style={{ borderBottom: "1px solid var(--border-light)", background: it.is_paid ? "#f0fdf4" : (isOverdue ? "#fef2f2" : "white") }} data-testid={`payment-row-${rowKey}`}>
+                  <td style={{ ...td, fontWeight: 500, paddingLeft: isObjekat ? 28 : 12 }}>
                     {isOverdue && <Warning size={13} weight="fill" style={{ color: "#ef4444", marginRight: 6, verticalAlign: "middle" }} />}
-                    {it.company_naziv}
+                    {isObjekat && <span style={{ color: "var(--text-tertiary)", marginRight: 6 }}>↳</span>}
+                    {isObjekat ? (
+                      <>
+                        <span style={{ color: "var(--text-secondary)", fontSize: 12, fontWeight: 400 }}>{it.company_naziv} · </span>
+                        <span style={{ fontWeight: 600, color: "#1e40af" }}>{it.objekat_naziv || "Objekat"}</span>
+                      </>
+                    ) : (
+                      <>
+                        {it.company_naziv}
+                        {it.objekat_naziv === "Sjedište" && <span style={{ marginLeft: 6, fontSize: 11, color: "var(--text-tertiary)" }}>(Sjedište)</span>}
+                      </>
+                    )}
                   </td>
                   <td style={td}>
                     <input
@@ -199,7 +213,7 @@ function MjesecneNaknade() {
                       checked={it.is_paid || false}
                       onChange={(e) => updatePayment(it, { is_paid: e.target.checked, datum_naplate: e.target.checked && !it.datum_naplate ? new Date().toISOString().slice(0, 10) : it.datum_naplate })}
                       style={{ width: 18, height: 18, cursor: "pointer" }}
-                      data-testid={`payment-paid-${it.company_id}`}
+                      data-testid={`payment-paid-${rowKey}`}
                     />
                   </td>
                   <td style={td}>

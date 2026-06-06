@@ -2726,6 +2726,9 @@ async def delete_company_objekat(company_id: str, objekat_id: str, username: str
     res = await db.company_objekti.delete_one({"id": objekat_id, "company_id": company_id})
     if res.deleted_count == 0:
         raise HTTPException(404, "Objekat nije pronađen.")
+    # Cascade delete: ukloni pripadajuće cijene i monthly_payments
+    await db.objekat_pricing.delete_many({"objekat_id": objekat_id})
+    await db.monthly_payments.delete_many({"objekat_id": objekat_id})
     return {"success": True}
 
 
@@ -3146,6 +3149,7 @@ class ObjekatPricing(BaseModel):
 
 class MonthlyPayment(BaseModel):
     company_id: str
+    objekat_id: Optional[str] = ""  # ako je prazno, plaćanje je za baznu cijenu firme (sjedište)
     godina: int  # 2026
     mjesec: int  # 1-12
     iznos: float  # može biti drugačiji od default-a
@@ -3275,47 +3279,95 @@ async def list_payments(
     if company_id:
         query["company_id"] = company_id
     
-    existing = await db.monthly_payments.find(query, {"_id": 0}).to_list(1000)
+    existing_raw = await db.monthly_payments.find(query, {"_id": 0}).to_list(2000)
+    # Dedupe po (cid, oid, godina, mjesec) - keep latest by updated_at
+    existing_map: Dict = {}
+    for p in existing_raw:
+        k = (p.get("company_id"), p.get("objekat_id") or "", p.get("godina"), p.get("mjesec"))
+        cur = existing_map.get(k)
+        if not cur or (p.get("updated_at", "") or p.get("created_at", "")) > (cur.get("updated_at", "") or cur.get("created_at", "")):
+            existing_map[k] = p
+    existing = list(existing_map.values())
     
-    # Auto-merge sa firmama da bismo prikazali sve firme bez obzira da li imaju uplatu
+    # Auto-merge sa firmama da bismo prikazali sve firme + objekti bez obzira da li imaju uplatu
     if godina and mjesec:
-        # Generiraj virtuelne stavke za firme koje nemaju zapis
+        # Učitaj cjenovnik (firma baza) i cjenovnik objekata
         pricings = await db.company_pricing.find({}, {"_id": 0}).to_list(500)
         pricing_by_cid = {p["company_id"]: p for p in pricings}
-        # Učitaj i cijene objekata (suma se dodaje na bazu)
         obj_pricings = await db.objekat_pricing.find({}, {"_id": 0}).to_list(2000)
-        obj_sum_by_cid: Dict[str, float] = {}
+        obj_by_cid: Dict[str, List[Dict]] = {}
         for op in obj_pricings:
-            cid_local = op.get("company_id", "")
-            obj_sum_by_cid[cid_local] = obj_sum_by_cid.get(cid_local, 0.0) + float(op.get("monthly_fee", 0) or 0)
-        existing_cids = {p["company_id"] for p in existing}
-        companies = await db.companies.find({}, {"_id": 0, "id": 1, "naziv": 1, "naziv_skraceni": 1}).to_list(500)
+            obj_by_cid.setdefault(op.get("company_id", ""), []).append(op)
+        # Učitaj objekat nazive (kako bismo mogli da prikažemo naziv objekta)
+        all_objekti = await db.company_objekti.find({}, {"_id": 0}).to_list(2000)
+        obj_naziv_by_oid = {o["id"]: o for o in all_objekti}
         
-        out = list(existing)
+        # Postojeće zapise mapiraj po (cid, oid)
+        existing_keys = {(p["company_id"], p.get("objekat_id") or ""): p for p in existing}
+        # Ako je company_id filter, učitaj samo tu firmu; inače sve
+        co_query = {"id": company_id} if company_id else {}
+        companies = await db.companies.find(co_query, {"_id": 0, "id": 1, "naziv": 1, "naziv_skraceni": 1}).to_list(500)
+        
+        out: List[Dict] = []
         for c in companies:
-            if c["id"] not in existing_cids:
-                base_fee = pricing_by_cid.get(c["id"], {}).get("monthly_fee", 0.0) or 0
-                obj_sum = obj_sum_by_cid.get(c["id"], 0.0)
-                default_fee = round(float(base_fee) + obj_sum, 2)
-                out.append({
-                    "id": None,
-                    "company_id": c["id"],
-                    "company_naziv": c["naziv"],
-                    "godina": godina,
-                    "mjesec": mjesec,
-                    "iznos": default_fee,
-                    "is_paid": False,
-                    "datum_naplate": "",
-                    "napomena": "",
-                    "_virtual": True,
-                })
-        # Dodaj naziv za postojeće
-        co_by_cid = {c["id"]: c for c in companies}
-        for p in out:
-            if not p.get("company_naziv"):
-                co = co_by_cid.get(p["company_id"])
-                p["company_naziv"] = co["naziv"] if co else ""
-        out.sort(key=lambda x: x.get("company_naziv", ""))
+            cid = c["id"]
+            base_fee = float(pricing_by_cid.get(cid, {}).get("monthly_fee", 0.0) or 0)
+            objs = obj_by_cid.get(cid, [])
+            
+            # Bazni red za firmu (sjedište). Prikaži samo ako bazni fee > 0 ILI firma nema objekata
+            include_base = base_fee > 0 or len(objs) == 0
+            if include_base:
+                key = (cid, "")
+                if key in existing_keys:
+                    p = existing_keys[key]
+                    p["company_naziv"] = c["naziv"]
+                    p["objekat_naziv"] = ""
+                    out.append(p)
+                else:
+                    out.append({
+                        "id": None,
+                        "company_id": cid,
+                        "objekat_id": "",
+                        "company_naziv": c["naziv"],
+                        "objekat_naziv": "" if not objs else "Sjedište",
+                        "godina": godina,
+                        "mjesec": mjesec,
+                        "iznos": base_fee,
+                        "is_paid": False,
+                        "datum_naplate": "",
+                        "napomena": "",
+                        "_virtual": True,
+                    })
+            
+            # Za svaki objekat firme — zaseban red
+            for op in objs:
+                oid = op["objekat_id"]
+                obj_info = obj_naziv_by_oid.get(oid, {})
+                obj_naziv = obj_info.get("naziv", "")
+                obj_fee = float(op.get("monthly_fee", 0) or 0)
+                key = (cid, oid)
+                if key in existing_keys:
+                    p = existing_keys[key]
+                    p["company_naziv"] = c["naziv"]
+                    p["objekat_naziv"] = obj_naziv
+                    out.append(p)
+                else:
+                    out.append({
+                        "id": None,
+                        "company_id": cid,
+                        "objekat_id": oid,
+                        "company_naziv": c["naziv"],
+                        "objekat_naziv": obj_naziv,
+                        "godina": godina,
+                        "mjesec": mjesec,
+                        "iznos": obj_fee,
+                        "is_paid": False,
+                        "datum_naplate": "",
+                        "napomena": "",
+                        "_virtual": True,
+                    })
+        
+        out.sort(key=lambda x: (x.get("company_naziv", ""), x.get("objekat_naziv", "")))
         return out
     
     # Dodaj naziv firme za istorijski pregled
@@ -3331,12 +3383,20 @@ async def list_payments(
 
 @api_router.post("/finance/payments")
 async def upsert_payment(req: MonthlyPayment, username: str = Depends(get_current_user)):
-    """Sačuvaj/ažuriraj uplatu za firmu × godina × mjesec."""
-    query = {"company_id": req.company_id, "godina": req.godina, "mjesec": req.mjesec}
+    """Sačuvaj/ažuriraj uplatu za firmu × objekat × godina × mjesec."""
+    oid = req.objekat_id or ""
+    query = {"company_id": req.company_id, "objekat_id": oid, "godina": req.godina, "mjesec": req.mjesec}
     existing = await db.monthly_payments.find_one(query, {"_id": 0})
+    # Backward compat: ako tražimo bez objekat_id polja u starim zapisima
+    if not existing and oid == "":
+        existing = await db.monthly_payments.find_one(
+            {"company_id": req.company_id, "godina": req.godina, "mjesec": req.mjesec, "objekat_id": {"$in": [None, ""]}},
+            {"_id": 0}
+        )
     
     rec = {
         "company_id": req.company_id,
+        "objekat_id": oid,
         "godina": req.godina,
         "mjesec": req.mjesec,
         "iznos": req.iznos,
@@ -3346,7 +3406,7 @@ async def upsert_payment(req: MonthlyPayment, username: str = Depends(get_curren
         "updated_at": datetime.now(timezone.utc).isoformat(),
     }
     if existing:
-        await db.monthly_payments.update_one(query, {"$set": rec})
+        await db.monthly_payments.update_one({"id": existing["id"]}, {"$set": rec})
         rec["id"] = existing.get("id")
     else:
         rec["id"] = str(uuid.uuid4())
@@ -3662,6 +3722,23 @@ async def clear_year_payments(year: int, username: str = Depends(get_current_use
     i ne želiš da ti prikazuje overdue alarme za historijske godine."""
     r1 = await db.monthly_payments.delete_many({"godina": year})
     return {"deleted_payments": r1.deleted_count, "year": year}
+
+
+@api_router.post("/finance/dedupe-payments")
+async def dedupe_payments(username: str = Depends(get_current_user)):
+    """Briše duplicate monthly_payments zapise (zadržava najnoviji po (cid, oid, godina, mjesec))."""
+    all_p = await db.monthly_payments.find({}, {"_id": 0}).to_list(10000)
+    by_key: Dict = {}
+    for p in all_p:
+        k = (p.get("company_id"), p.get("objekat_id") or "", p.get("godina"), p.get("mjesec"))
+        cur = by_key.get(k)
+        if not cur or (p.get("updated_at", "") or p.get("created_at", "")) > (cur.get("updated_at", "") or cur.get("created_at", "")):
+            by_key[k] = p
+    keep_ids = {p["id"] for p in by_key.values()}
+    to_delete = [p["id"] for p in all_p if p["id"] not in keep_ids]
+    if to_delete:
+        await db.monthly_payments.delete_many({"id": {"$in": to_delete}})
+    return {"deleted": len(to_delete), "kept": len(keep_ids)}
 
 
 @api_router.get("/finance/per-client")
