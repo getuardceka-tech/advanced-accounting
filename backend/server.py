@@ -1542,11 +1542,21 @@ def _build_replacements(company: dict, employee: Optional[dict], agency: dict, c
             try:
                 d = datetime.fromisoformat(go_start_iso)
                 go_pocetak_dmy = d.strftime("%d.%m.%Y")
-                # Brojanje radnih dana: start je prvi dan, ako je radni broji se
+                # Skup datuma državnih/vjerskih praznika za relevantne godine (sve godine kroz koje period može preći)
+                praznici_set = set()
+                for yr in range(d.year, d.year + 2):  # ova i sljedeća godina (za slučaj prelaska)
+                    for p in CG_PRAZNICI:
+                        try:
+                            praznici_set.add(datetime.strptime(f"{p['datum']}.{yr}", "%d.%m.%Y").date())
+                        except (ValueError, TypeError):
+                            pass
+                # Brojanje radnih dana — preskoči vikende I državne praznike
                 counted = 0
                 cur = d
                 while counted < go_dana:
-                    if cur.weekday() < 5:  # 0-4 = Pon-Pet
+                    is_weekend = cur.weekday() >= 5
+                    is_holiday = cur.date() in praznici_set
+                    if not is_weekend and not is_holiday:
                         counted += 1
                         if counted == go_dana:
                             break
