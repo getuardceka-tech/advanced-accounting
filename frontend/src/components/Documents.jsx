@@ -31,6 +31,8 @@ export default function Documents() {
   const [generating, setGenerating] = useState(false);
   const [genResult, setGenResult] = useState(null);
   const [genError, setGenError] = useState("");
+  const [companyObjekti, setCompanyObjekti] = useState([]);  // sačuvani objekti za izabranu firmu
+  const [selectedObjekatId, setSelectedObjekatId] = useState("");
 
   useEffect(() => {
     Promise.all([
@@ -62,11 +64,49 @@ export default function Documents() {
   useEffect(() => {
     if (companyId) {
       api.get(`/employees?company_id=${companyId}`).then((r) => setEmployees(r.data)).catch(() => setEmployees([]));
+      api.get(`/companies/${companyId}/objekti`)
+        .then((r) => setCompanyObjekti((r.data || []).filter((o) => o.saved)))
+        .catch(() => setCompanyObjekti([]));
     } else {
       setEmployees([]);
+      setCompanyObjekti([]);
     }
     setEmployeeId("");
+    setSelectedObjekatId("");
   }, [companyId]);
+  
+  // Filtriraj zaposlene po izabranom objektu
+  const filteredEmployees = useMemo(() => {
+    if (!selectedObjekatId) return employees;
+    return employees.filter((e) => (e.objekat_id || "") === selectedObjekatId);
+  }, [employees, selectedObjekatId]);
+  
+  // Kada se izabere objekat, popuni naziv/adresu u custom_fields (za templete sa NAZIV_OBJEKTA / ADRESA_OBJEKTA)
+  useEffect(() => {
+    if (selectedObjekatId) {
+      const obj = companyObjekti.find((o) => (o.id || o.objekat_id) === selectedObjekatId);
+      if (obj) {
+        setCustomFields((prev) => ({
+          ...prev,
+          naziv_objekta: obj.naziv_objekta || obj.naziv || "",
+          adresa_objekta: obj.adresa_objekta || obj.adresa || "",
+        }));
+      }
+    } else {
+      setCustomFields((prev) => {
+        const np = { ...prev };
+        delete np.naziv_objekta;
+        delete np.adresa_objekta;
+        return np;
+      });
+    }
+    // Resetuj employee ako više nije u filtriranoj listi
+    if (employeeId && selectedObjekatId) {
+      const stillThere = employees.find((e) => e.id === employeeId && (e.objekat_id || "") === selectedObjekatId);
+      if (!stillThere) setEmployeeId("");
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedObjekatId]);
 
   const categories = useMemo(() => {
     const cats = new Set(templates.map((t) => t.category));
@@ -439,9 +479,38 @@ export default function Documents() {
                     )}
                   </div>
 
-                  {employees.length > 0 && !selectedTemplate.is_pdf_form && (
+                  {companyObjekti.length > 0 && !selectedTemplate.is_pdf_form && (
                     <div className="field-group" style={{ marginBottom: 14 }}>
-                      <label className="field-label">Zaposleni (opciono)</label>
+                      <label className="field-label">Objekat (poslovnica) — opciono</label>
+                      <select
+                        className="select"
+                        value={selectedObjekatId}
+                        onChange={(e) => setSelectedObjekatId(e.target.value)}
+                        data-testid="gen-objekat-select"
+                      >
+                        <option value="">— Sjedište / svi objekti —</option>
+                        {companyObjekti.map((o) => (
+                          <option key={o.id || o.objekat_id} value={o.id || o.objekat_id}>
+                            {o.naziv_objekta}{o.adresa_objekta ? ` · ${o.adresa_objekta}` : ""}
+                          </option>
+                        ))}
+                      </select>
+                      <div style={{ fontSize: 11.5, color: "var(--text-tertiary)", marginTop: 4 }}>
+                        💡 Ako izabereš objekat, adresa firme u dokumentu se zamjenjuje adresom tog objekta. Lista zaposlenih se automatski filtrira na zaposlene tog objekta.
+                      </div>
+                    </div>
+                  )}
+
+                  {filteredEmployees.length > 0 && !selectedTemplate.is_pdf_form && (
+                    <div className="field-group" style={{ marginBottom: 14 }}>
+                      <label className="field-label">
+                        Zaposleni (opciono)
+                        {selectedObjekatId && (
+                          <span style={{ fontSize: 11, fontWeight: 400, color: "var(--text-tertiary)", marginLeft: 6 }}>
+                            · filtrirano na {filteredEmployees.length} {filteredEmployees.length === 1 ? "zaposlenog" : "zaposlenih"} izabranog objekta
+                          </span>
+                        )}
+                      </label>
                       <select
                         className="select"
                         value={employeeId}
@@ -449,7 +518,7 @@ export default function Documents() {
                         data-testid="gen-employee-select"
                       >
                         <option value="">— Bez zaposlenog —</option>
-                        {employees.map((emp) => (
+                        {filteredEmployees.map((emp) => (
                           <option key={emp.id} value={emp.id}>
                             {emp.ime} {emp.prezime} {emp.pozicija ? `· ${emp.pozicija}` : ""}
                           </option>
@@ -475,6 +544,7 @@ export default function Documents() {
                       values={customFields}
                       onChange={setCustomFields}
                       companyId={companyId}
+                      objekatId={selectedObjekatId}
                     />
                   )}
                   
@@ -589,7 +659,7 @@ export default function Documents() {
 }
 
 
-function ExtrasOdluka({ template, values, onChange, companyId }) {
+function ExtrasOdluka({ template, values, onChange, companyId, objekatId }) {
   const fn = (template?.filename || "").toLowerCase();
   
   const isPopust = fn.includes("popust");
@@ -613,8 +683,8 @@ function ExtrasOdluka({ template, values, onChange, companyId }) {
       {isObavjestenjeRadno && <RadnoVrijemeInput values={values} u={u} />}
       {isKomunalna && <KomunalnaInput values={values} u={u} />}
       {isPraznici && <PrazniciPicker values={values} onChange={onChange} />}
-      {isTableTpl && <EmployeesTablePreview companyId={companyId} values={values} u={u} fn={fn} />}
-      {(isMobing || isIzjavaOdgovornost) && <BulkEmployeesPicker companyId={companyId} values={values} onChange={onChange} />}
+      {isTableTpl && <EmployeesTablePreview companyId={companyId} objekatId={objekatId} values={values} u={u} fn={fn} />}
+      {(isMobing || isIzjavaOdgovornost) && <BulkEmployeesPicker companyId={companyId} objekatId={objekatId} values={values} onChange={onChange} />}
     </div>
   );
 }
@@ -796,14 +866,30 @@ function PrazniciPicker({ values, onChange }) {
   );
 }
 
-function EmployeesTablePreview({ companyId, values, u, fn }) {
-  const [employees, setEmployees] = useState([]);
+function EmployeesTablePreview({ companyId, objekatId, values, u, fn }) {
+  const [allEmployees, setAllEmployees] = useState([]);
   useEffect(() => {
     if (!companyId) return;
     api.get(`/employees?company_id=${companyId}`)
-      .then((r) => setEmployees(r.data || []))
-      .catch(() => setEmployees([]));
+      .then((r) => setAllEmployees(r.data || []))
+      .catch(() => setAllEmployees([]));
   }, [companyId]);
+  
+  const employees = useMemo(() => {
+    if (!objekatId) return allEmployees;
+    return allEmployees.filter((e) => (e.objekat_id || "") === objekatId);
+  }, [allEmployees, objekatId]);
+  
+  // Propagiraj filtrirane zaposlene u customFields da backend zna kojih da uključi
+  useEffect(() => {
+    if (objekatId) {
+      u("bulk_employee_ids", employees.map((e) => e.id));
+    } else {
+      // Ukloni bulk_employee_ids ako se ne filtrira po objektu
+      u("bulk_employee_ids", null);
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [objekatId, allEmployees]);
   
   const isRaspored = fn.includes("rasporedu radnog");
   const isPauza = fn.includes("pauze");
@@ -814,7 +900,7 @@ function EmployeesTablePreview({ companyId, values, u, fn }) {
     <div style={{ marginBottom: 12 }}>
       <div style={{ padding: 10, background: "#ecfdf5", border: "1px solid #6ee7b7", borderRadius: 8, marginBottom: 10 }}>
         <div style={{ fontSize: 12.5, color: "#065f46", fontWeight: 600 }}>
-          ✓ Spisak svih {employees.length} zaposlenih iz firme biće automatski popunjen u tabeli odluke.
+          ✓ Spisak svih {employees.length} zaposlenih{objekatId ? " izabranog objekta" : " iz firme"} biće automatski popunjen u tabeli odluke.
         </div>
       </div>
       
@@ -858,14 +944,19 @@ function EmployeesTablePreview({ companyId, values, u, fn }) {
   );
 }
 
-function BulkEmployeesPicker({ companyId, values, onChange }) {
-  const [employees, setEmployees] = useState([]);
+function BulkEmployeesPicker({ companyId, objekatId, values, onChange }) {
+  const [allEmployees, setAllEmployees] = useState([]);
   useEffect(() => {
     if (!companyId) return;
     api.get(`/employees?company_id=${companyId}`)
-      .then((r) => setEmployees(r.data || []))
-      .catch(() => setEmployees([]));
+      .then((r) => setAllEmployees(r.data || []))
+      .catch(() => setAllEmployees([]));
   }, [companyId]);
+  
+  const employees = useMemo(() => {
+    if (!objekatId) return allEmployees;
+    return allEmployees.filter((e) => (e.objekat_id || "") === objekatId);
+  }, [allEmployees, objekatId]);
   
   const selected = new Set(values.bulk_employee_ids || []);
   const toggle = (id) => {

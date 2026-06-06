@@ -1064,9 +1064,17 @@ def _build_replacements(company: dict, employee: Optional[dict], agency: dict, c
     
     # ========== SMART REPLACEMENT - Sample → Real ==========
     # Sample company names → real company
+    # Skraćeni naziv firme za kratke sample varijante
+    naziv_skraceni = (company.get("naziv_skraceni") or "").strip() or company_naziv
+    # Heuristika: kratke sample varijante (≤30 chars, npr. "DOO CULT ULCINJ" ili "CULT ULCINJ")
+    # treba zamijeniti SKRAĆENIM nazivom firme — inače u tekstu poput "iz Ulcinja,donosi"
+    # dobijamo cijeli pravni naziv unutar rečenice.
     for sample_name in SAMPLE_COMPANY_NAMES:
         if sample_name and company_naziv:
-            repl[sample_name] = company_naziv
+            if len(sample_name) <= 30 and naziv_skraceni:
+                repl[sample_name] = naziv_skraceni
+            else:
+                repl[sample_name] = company_naziv
     
     # Sample PIBs → real PIB
     for sample_pib in SAMPLE_PIBS:
@@ -2112,12 +2120,20 @@ def _docx_replace(doc: Document, replacements: Dict[str, str]):
         # Combine all runs text
         full_text = ''.join(run.text for run in paragraph.runs)
         new_text = full_text
-        # Zamjene idu od najduže ka najkraćoj (da duži pattern ne bude pojeden kraćim)
+        # Zamjene idu od najduže ka najkraćoj (da duži pattern ne bude pojeden kraćim).
+        # KORISTIMO PRIVREMENI MARKER da bismo izbegli kaskadu kada zamjenska vrijednost
+        # sadrži dijelove drugih ključeva (npr. "PROIZVODNJU," u novom nazivu firme).
         sorted_keys = sorted(replacements.keys(), key=len, reverse=True)
-        for key in sorted_keys:
+        markers: Dict[str, str] = {}
+        for i, key in enumerate(sorted_keys):
             val = replacements[key]
             if key and key in new_text:
-                new_text = new_text.replace(key, val)
+                marker = f"\x00REPL{i:04d}\x00"
+                new_text = new_text.replace(key, marker)
+                markers[marker] = val
+        # Sada zamijeni markere sa stvarnim vrijednostima
+        for marker, val in markers.items():
+            new_text = new_text.replace(marker, val)
         
         if new_text != full_text and paragraph.runs:
             # Keep first run formatting, clear other runs
@@ -2283,7 +2299,12 @@ async def generate_document(req: DocumentGenerateRequest, username: str = Depend
         "godisnji odmor", "godišnji odmor", "koriscenje pauze", "korišćenje pauze",
     ])
     if is_table_template:
-        emp_list = await db.employees.find({"company_id": req.company_id}, {"_id": 0}).to_list(length=200)
+        emp_query: Dict[str, Any] = {"company_id": req.company_id}
+        # Ako je u custom poljima poslata lista zaposlenih (npr. filtrirana po objektu), koristi samo njih
+        bulk_ids = custom.get("bulk_employee_ids")
+        if bulk_ids and isinstance(bulk_ids, list) and len(bulk_ids) > 0:
+            emp_query["id"] = {"$in": bulk_ids}
+        emp_list = await db.employees.find(emp_query, {"_id": 0}).to_list(length=500)
         # Sortiraj radnike po imenu
         emp_list.sort(key=lambda e: (e.get("ime", "") + " " + e.get("prezime", "")).strip().upper())
         _populate_employees_table(doc, emp_list, tname_lower, custom)

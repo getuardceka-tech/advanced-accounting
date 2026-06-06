@@ -8,6 +8,7 @@ import api from "@/lib/api";
 
 const empEmpty = {
   company_id: "",
+  objekat_id: "",
   ime: "", prezime: "", jmbg: "", licna_karta: "", pasos: "",
   is_stranac: false, vrsta_isprave: "jmbg",
   adresa: "", grad: "",
@@ -397,6 +398,16 @@ export default function Persons() {
 
 function PersonModal({ form, setForm, editing, companies, onSave, onClose, onSaveAndPrint, onSaveAndPrintPonuda, saving, error }) {
   const u = (k, v) => setForm({ ...form, [k]: v });
+  const [objekti, setObjekti] = useState([]);
+  
+  // Učitaj objekte za izabranu firmu
+  useEffect(() => {
+    if (!form.company_id) { setObjekti([]); return; }
+    api.get(`/companies/${form.company_id}/objekti`)
+      .then((r) => setObjekti((r.data || []).filter((o) => o.saved)))
+      .catch(() => setObjekti([]));
+  }, [form.company_id]);
+  
   return (
     <div className="modal-backdrop" onClick={onClose} data-testid="person-modal">
       <div className="modal animate-slide-up" onClick={(e) => e.stopPropagation()} style={{ maxWidth: 720 }}>
@@ -417,6 +428,22 @@ function PersonModal({ form, setForm, editing, companies, onSave, onClose, onSav
                 onSelect={(c) => u("company_id", c ? c.id : "")}
               />
             </div>
+            {objekti.length > 0 && (
+              <div className="field-group" style={{ gridColumn: "1/-1" }}>
+                <label className="field-label">Objekat (poslovnica)</label>
+                <select className="select" value={form.objekat_id || ""} onChange={(e) => u("objekat_id", e.target.value)} data-testid="person-objekat">
+                  <option value="">— Sjedište (bez objekta) —</option>
+                  {objekti.map((o) => (
+                    <option key={o.id} value={o.id}>
+                      {o.naziv_objekta}{o.adresa_objekta ? ` · ${o.adresa_objekta}` : ""}
+                    </option>
+                  ))}
+                </select>
+                <div style={{ fontSize: 11, color: "var(--text-tertiary)", marginTop: 4 }}>
+                  Ako firma ima više poslovnica/hotela/restorana, odaberi za koji radi ovaj zaposleni. Pri generisanju dokumenata zaposleni se automatski grupišu po objektu.
+                </div>
+              </div>
+            )}
             <Field label="Ime *" value={form.ime} onChange={(v) => u("ime", v)} testid="person-ime" />
             <Field label="Prezime *" value={form.prezime} onChange={(v) => u("prezime", v)} testid="person-prezime" />
             
