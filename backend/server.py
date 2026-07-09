@@ -1433,9 +1433,17 @@ def _build_replacements(company: dict, employee: Optional[dict], agency: dict, c
     
     # Ugovor o dopunskom radu — nova verzija sa svim referencama i sample podacima UNICO HIJA / ARTAN BAJROVIĆ
     if "dopunskom radu" in _tpl_lower:
-        # Datum zaključenja + potpisa "15.06.2026." → današnji datum (2x u dokumentu)
-        repl["15.06.2026. godine"] = f"{today_str} godine"
-        repl["dana 15.06.2026"] = f"dana {today_str}"
+        # Datum zaključenja + potpisa "15.06.2026." → datum početka radnog odnosa iz kartona zaposlenog (2x u dokumentu)
+        _dr_zakljucenje = today_str
+        if employee:
+            _emp_start_zk = employee.get("datum_pocetka", "")
+            if _emp_start_zk:
+                try:
+                    _dr_zakljucenje = datetime.fromisoformat(_emp_start_zk.replace('Z', '')).strftime("%d.%m.%Y")
+                except Exception:
+                    _dr_zakljucenje = _emp_start_zk
+        repl["15.06.2026. godine"] = f"{_dr_zakljucenje} godine"
+        repl["dana 15.06.2026"] = f"dana {_dr_zakljucenje}"
         # Period važenja dopunskog ugovora "15.06.2026 -30.09.2026"
         # → automatski iz kartona zaposlenog (datum_pocetka - datum_kraja)
         if employee:
@@ -1487,11 +1495,11 @@ def _build_replacements(company: dict, employee: Optional[dict], agency: dict, c
         else:
             repl["20( dvadeset ) radnih sati"] = "____ radnih sati"
             repl["20(dvadeset) radnih sati"] = "____ radnih sati"
-        # Radni dani — ostavlja se prazno (klijent popunjava ručno)
-        repl["5( pet) radnih dana"] = "____ radnih dana"
-        repl["5(pet) radnih dana"] = "____ radnih dana"
-        repl["5(pet)  radnih dana"] = "____ radnih dana"
-        repl["5( pet)  radnih dana"] = "____ radnih dana"
+        # Radni dani — fiksno "5 radnih dana" u sedmici
+        repl["5( pet) radnih dana"] = "5 radnih dana"
+        repl["5(pet) radnih dana"] = "5 radnih dana"
+        repl["5(pet)  radnih dana"] = "5 radnih dana"
+        repl["5( pet)  radnih dana"] = "5 radnih dana"
         # Iznos naknade → automatski iz emp.plata_neto
         emp_plata_dr = 0.0
         if employee:
@@ -1504,8 +1512,8 @@ def _build_replacements(company: dict, employee: Optional[dict], agency: dict, c
             repl["iznos od 300.00 eura mjesečno"] = f"iznos od {plata_dr_str} eura mjesečno"
         else:
             repl["iznos od 300.00 eura mjesečno"] = "iznos od __________ eura mjesečno"
-        # Dan isplate — ostavlja se prazno (klijent popunjava ručno)
-        repl["do 10 u mjesecu"] = "do ______ u mjesecu"
+        # Dan isplate — fiksno "do 10 u mjesecu" (klijent uvijek isplaćuje najkasnije do 10.)
+        repl["do 10 u mjesecu"] = "do 10 u mjesecu"
         # Broj primjeraka
         repl["u 4 istovjetna primjerka od kojih po 1"] = "u ____ istovjetna primjerka od kojih po ____"
         # Skraćeni naziv sa oznakama za potpis (DOO "UNICO HIJA " ULCINJ)
@@ -5029,6 +5037,22 @@ async def health_check():
 
 
 # Include the router in the main app
+app.include_router(api_router)
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_credentials=True,
+    allow_origins=os.environ.get('CORS_ORIGINS', '*').split(','),
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+# Configure logging
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+)
+logger = logging.getLogger(__name__)
 app.include_router(api_router)
 
 app.add_middleware(
