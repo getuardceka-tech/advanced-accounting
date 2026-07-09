@@ -927,7 +927,7 @@ SAMPLE_COMPANY_NAMES = [
 ]
 
 # Sample PIBs koje treba zamijeniti (sa izabranom firmom)
-SAMPLE_PIBS = ["03801969", "03796841", "03807851", "03663108", "03314367", "1906972223002"]
+SAMPLE_PIBS = ["03801969", "03796841", "03807851", "03663108", "03314367", "1906972223002", "03360423"]
 
 # Sample PDV brojevi
 SAMPLE_PDV_NUMBERS = ["82/31-02356-8", "82/31-03288-7"]
@@ -997,12 +997,15 @@ SAMPLE_EMPLOYEE_NAMES = [
     "ALBERT OSMANOVIC", "ALBERT OSMANOVIĆ",
     "DAUT VELIC", "DAUT VELIĆ",
     "EKREM HOT",
+    "ARTAN BAJROVIĆ", "ARTAN BAJROVIC",
+    "Artan Bajrovic", "Artan Bajrović",
 ]
 SAMPLE_EMPLOYEE_JMBGS = [
     "1411008223029", "039066621", "3004974220012",
     "0612986223008",
     "2602956223056",
     "2804974280026",
+    "2201006220501",
 ]
 SAMPLE_EMPLOYEE_LK = ["I3382349M"]  # broj lične karte
 SAMPLE_EMPLOYEE_POSITIONS = [
@@ -1428,20 +1431,87 @@ def _build_replacements(company: dict, employee: Optional[dict], agency: dict, c
             'i Zakona o zabrani zlostavljanja na radu (&quot;Službenom listu CG&quot;, br. 30/2012, 54/2016 i 84/2024 - drugi zakon)'
         )
     
-    # Ugovor o dopunskom radu — potpuna zamjena stare preambule
+    # Ugovor o dopunskom radu — nova verzija sa svim referencama i sample podacima UNICO HIJA / ARTAN BAJROVIĆ
     if "dopunskom radu" in _tpl_lower:
-        old_preamble = (
-            'Na osnovu člana 202 Zakona o radu (Sl. List Crne Gore br.145/21 od 31.12.2021), '
-            'član 1 Zakona o zaštiti na radu (Sl. List RCG br.40/11 od 08.08.2011) i pravilnika o '
-            'pitanjima iz zaštite na radu koje treba urediti ugovorom o radu (Sl.list RCG br. 67/05)'
-        )
-        new_preamble = (
-            'Na osnovu člana 202 Zakona o radu ("Službenom listu CG", br. 74/2019, 8/2021, 59/2021, 68/2021, '
-            '145/2021, 77/2024, 84/2024 - drugi zakon, 86/2024, 122/2025 (u primeni od 1.12.2026. godine), '
-            '165/2025 i 51/2026. Vidi: Odluku US CG - 30/2026.) i Zakona o zabrani zlostavljanja na radu '
-            '("Službenom listu CG", br. 30/2012, 54/2016 i 84/2024 - drugi zakon)'
-        )
-        repl[old_preamble] = new_preamble
+        # Datum zaključenja + potpisa "15.06.2026." → današnji datum (2x u dokumentu)
+        repl["15.06.2026. godine"] = f"{today_str} godine"
+        repl["dana 15.06.2026"] = f"dana {today_str}"
+        # Period važenja dopunskog ugovora "15.06.2026 -30.09.2026"
+        # → automatski iz kartona zaposlenog (datum_pocetka - datum_kraja)
+        if employee:
+            emp_start_dr = employee.get("datum_pocetka", "")
+            emp_end_dr = employee.get("datum_kraja", "")
+            fmt_start_dr = ""
+            fmt_end_dr = ""
+            if emp_start_dr:
+                try:
+                    dt = datetime.fromisoformat(emp_start_dr.replace('Z', ''))
+                    fmt_start_dr = dt.strftime("%d.%m.%Y")
+                except Exception:
+                    fmt_start_dr = emp_start_dr
+            if emp_end_dr:
+                try:
+                    dt = datetime.fromisoformat(emp_end_dr.replace('Z', ''))
+                    fmt_end_dr = dt.strftime("%d.%m.%Y")
+                except Exception:
+                    fmt_end_dr = emp_end_dr
+            period_dr = f"{fmt_start_dr or '____________'} - {fmt_end_dr or '____________'}"
+            repl["15.06.2026 -30.0 9 .2026"] = period_dr
+            repl["15.06.2026 -30.09.2026"] = period_dr
+        else:
+            repl["15.06.2026 -30.0 9 .2026"] = "____________ - ____________"
+            repl["15.06.2026 -30.09.2026"] = "____________ - ____________"
+        # Sample poslodavac gde je izvršilac trenutno zaposlen — ostaviti blank
+        repl["kod poslodavca DOO EKO-AL PIB: 02804794"] = "kod poslodavca ____________________________"
+        repl["kod poslodavca DOO EKO-AL"] = "kod poslodavca ____________________________"
+        repl["DOO EKO-AL"] = "____________________________"
+        repl["PIB: 02804794"] = ""
+        # RESTORAN HIJA → naziv objekta ako postoji, inače blank
+        objekat_val = (custom.get("naziv_objekta") or "").strip()
+        if objekat_val:
+            repl["u RESTORAN HIJA"] = f"u {objekat_val}"
+            repl["RESTORAN HIJA"] = objekat_val
+        else:
+            repl["u RESTORAN HIJA"] = "u ________________________"
+            repl["RESTORAN HIJA"] = "________________________"
+        # Radni sati sedmično → automatski iz emp.sati_sedmicno (kad je upisano u kartonu)
+        emp_sati = 0
+        if employee:
+            try:
+                emp_sati = int(employee.get("sati_sedmicno") or 0)
+            except (ValueError, TypeError):
+                emp_sati = 0
+        if emp_sati > 0:
+            repl["20( dvadeset ) radnih sati"] = f"{emp_sati} radnih sati"
+            repl["20(dvadeset) radnih sati"] = f"{emp_sati} radnih sati"
+        else:
+            repl["20( dvadeset ) radnih sati"] = "____ radnih sati"
+            repl["20(dvadeset) radnih sati"] = "____ radnih sati"
+        # Radni dani — ostavlja se prazno (klijent popunjava ručno)
+        repl["5( pet) radnih dana"] = "____ radnih dana"
+        repl["5(pet) radnih dana"] = "____ radnih dana"
+        repl["5(pet)  radnih dana"] = "____ radnih dana"
+        repl["5( pet)  radnih dana"] = "____ radnih dana"
+        # Iznos naknade → automatski iz emp.plata_neto
+        emp_plata_dr = 0.0
+        if employee:
+            try:
+                emp_plata_dr = float(employee.get("plata_neto") or 0)
+            except (ValueError, TypeError):
+                emp_plata_dr = 0.0
+        if emp_plata_dr > 0:
+            plata_dr_str = f"{emp_plata_dr:.2f}"
+            repl["iznos od 300.00 eura mjesečno"] = f"iznos od {plata_dr_str} eura mjesečno"
+        else:
+            repl["iznos od 300.00 eura mjesečno"] = "iznos od __________ eura mjesečno"
+        # Dan isplate — ostavlja se prazno (klijent popunjava ručno)
+        repl["do 10 u mjesecu"] = "do ______ u mjesecu"
+        # Broj primjeraka
+        repl["u 4 istovjetna primjerka od kojih po 1"] = "u ____ istovjetna primjerka od kojih po ____"
+        # Skraćeni naziv sa oznakama za potpis (DOO "UNICO HIJA " ULCINJ)
+        repl['DOO "UNICO HIJA " ULCINJ'] = (company.get("naziv_skraceni") or company_naziv or "____________").strip()
+        repl['DOO "UNICO HIJA" ULCINJ'] = (company.get("naziv_skraceni") or company_naziv or "____________").strip()
+        repl['"UNICO HIJA DOO"'] = (company.get("naziv_skraceni") or company_naziv or "____________").strip()
     
     # Sample datumi koji su today-dependent:
     repl["01.06.2026"] = today_str

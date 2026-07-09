@@ -121,3 +121,4 @@ Korisnik Getuard Cekoviq iz Ulcinja, Crna Gora, vlasnik računovodstvene agencij
   - **DB kolekcije**: `company_pricing`, `monthly_payments`, `extra_services`, `expenses`.
   - **Sidebar**: Dodat "Finansije" link sa € ikonom kao top-level. Route `/finansije`.
   - Backend testiran kroz curl (CRUD, exports valid xlsx+pdf, overdue logika ispravna).
+- **09.07.2026**: **Ugovor o dopunskom radu auto-populate** — polja iz kartona zaposlenog se sada automatski popunjavaju u templatu: radni sati sedmično (`sati_sedmicno`), iznos zarade (`plata_neto`), period važenja ugovora (`datum_pocetka - datum_kraja`). Radnih dana i dan isplate ostaju blank za ručno popunjavanje. Testirano manuelno kroz python-docx.
