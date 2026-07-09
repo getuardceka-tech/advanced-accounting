@@ -1401,6 +1401,48 @@ def _build_replacements(company: dict, employee: Optional[dict], agency: dict, c
     repl["BR:10/2026"] = "BR: ___/2026"
     
     # ========== NOVI ŠABLONI (Akti, Odluke o zaštiti od požara/radu, Procjena rizika) ==========
+    # Ažuriranje preambule ugovora o radu (fev 2026 update sa novim zakonskim referencama)
+    _tpl_lower = (template_filename or "").lower()
+    if "ugovor o radu" in _tpl_lower and "aneks" not in _tpl_lower:
+        # 1) Datum primjene 122/2025 + dodaj 51/2026 + Odluku US CG - patternira original (sa 1.7.2026)
+        repl["145/2021, 77/2024, 84/2024 - drugi zakon, 86/2024, 122/2025 (u primeni od 1.7.2026. godine) i 165/2025.)"] = (
+            '145/2021, 77/2024, 84/2024 - drugi zakon, 86/2024, 122/2025 (u primeni od 1.12.2026. godine), 165/2025 i 51/2026. Vidi: Odluku US CG - 30/2026.)'
+        )
+        # Fallback ako je template već imao 1.12.2026 (npr. nakon parcijalne izmjene)
+        repl["145/2021, 77/2024, 84/2024 - drugi zakon, 86/2024, 122/2025 (u primeni od 1.12.2026. godine) i 165/2025.)"] = (
+            '145/2021, 77/2024, 84/2024 - drugi zakon, 86/2024, 122/2025 (u primeni od 1.12.2026. godine), 165/2025 i 51/2026. Vidi: Odluku US CG - 30/2026.)'
+        )
+        # 3) Ukloni Opšti kolektivni ugovor + Zakon o zaštiti i zdravlju na radu, zameni sa
+        #    Zakonom o zabrani zlostavljanja na radu
+        repl[
+            'Opšteg kolektivnog ugovora ("službeni list crne gore", br. 150/22 od 30.12.2022), '
+            'i Zakona o zaštiti i zdravlju na radu ("Službeni list Crne Gore", br. 034/14 od 08.08.2014, 044/18 od 06.07.2018)'
+        ] = (
+            'i Zakona o zabrani zlostavljanja na radu ("Službenom listu CG", br. 30/2012, 54/2016 i 84/2024 - drugi zakon)'
+        )
+        # Alt bez uvrnutih HTML entities
+        repl[
+            'Opšteg kolektivnog ugovora (&quot;službeni list crne gore&quot;, br. 150/22 od 30.12.2022), '
+            'i Zakona o zaštiti i zdravlju na radu (&quot;Službeni list Crne Gore&quot;, br. 034/14 od 08.08.2014, 044/18 od 06.07.2018)'
+        ] = (
+            'i Zakona o zabrani zlostavljanja na radu (&quot;Službenom listu CG&quot;, br. 30/2012, 54/2016 i 84/2024 - drugi zakon)'
+        )
+    
+    # Ugovor o dopunskom radu — potpuna zamjena stare preambule
+    if "dopunskom radu" in _tpl_lower:
+        old_preamble = (
+            'Na osnovu člana 202 Zakona o radu (Sl. List Crne Gore br.145/21 od 31.12.2021), '
+            'član 1 Zakona o zaštiti na radu (Sl. List RCG br.40/11 od 08.08.2011) i pravilnika o '
+            'pitanjima iz zaštite na radu koje treba urediti ugovorom o radu (Sl.list RCG br. 67/05)'
+        )
+        new_preamble = (
+            'Na osnovu člana 202 Zakona o radu ("Službenom listu CG", br. 74/2019, 8/2021, 59/2021, 68/2021, '
+            '145/2021, 77/2024, 84/2024 - drugi zakon, 86/2024, 122/2025 (u primeni od 1.12.2026. godine), '
+            '165/2025 i 51/2026. Vidi: Odluku US CG - 30/2026.) i Zakona o zabrani zlostavljanja na radu '
+            '("Službenom listu CG", br. 30/2012, 54/2016 i 84/2024 - drugi zakon)'
+        )
+        repl[old_preamble] = new_preamble
+    
     # Sample datumi koji su today-dependent:
     repl["01.06.2026"] = today_str
     repl["05.06.2026"] = today_str
