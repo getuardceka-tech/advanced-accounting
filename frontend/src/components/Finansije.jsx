@@ -32,6 +32,7 @@ export default function Finansije() {
       <div style={{ display: "flex", gap: 4, marginBottom: 20, background: "white", padding: 5, borderRadius: 10, border: "1px solid var(--border)", width: "fit-content" }}>
         {[
           { v: "naknade", l: "💰 Mjesečne naknade" },
+          { v: "kartica", l: "📇 Kartica firme" },
           { v: "alarmi", l: "⚠️ Alarmi", badge: overdueCount },
           { v: "usluge", l: "🛠️ Dodatne usluge" },
           { v: "troskovi", l: "📉 Troškovi" },
@@ -65,6 +66,7 @@ export default function Finansije() {
       </div>
       
       {tab === "naknade" && <MjesecneNaknade />}
+      {tab === "kartica" && <KarticaFirme />}
       {tab === "alarmi" && <AlarmiNeplacenih onChanged={() => api.get("/finance/overdue").then((r) => setOverdueCount(r.data.length))} />}
       {tab === "usluge" && <DodatneUsluge />}
       {tab === "troskovi" && <Troskovi />}
@@ -916,6 +918,274 @@ function PerClientReport({ perClient, clientSort, setClientSort, clientSearch, s
       <div style={{ marginTop: 10, fontSize: 11.5, color: "var(--text-tertiary)" }}>
         💡 <i>Direktni troškovi</i> uključuju samo troškove kategorije "Vezan za uslugu" povezane sa klijentom. Opšti agencijski troškovi nisu raspoređeni po klijentima.
       </div>
+    </div>
+  );
+}
+
+/* =================== KARTICA FIRME =================== */
+function KarticaFirme() {
+  const [companies, setCompanies] = useState([]);
+  const [search, setSearch] = useState("");
+  const [selected, setSelected] = useState(null);
+  const [godina, setGodina] = useState(new Date().getFullYear());
+  const [card, setCard] = useState(null);
+  const [loading, setLoading] = useState(false);
+  const [showDropdown, setShowDropdown] = useState(false);
+  
+  useEffect(() => {
+    api.get("/companies").then((r) => setCompanies(r.data)).catch(() => {});
+  }, []);
+  
+  const loadCard = async (cid, yr) => {
+    if (!cid) return;
+    setLoading(true);
+    try {
+      const r = await api.get(`/finance/company-card/${cid}`, { params: { godina: yr } });
+      setCard(r.data);
+    } catch (err) {
+      console.warn(err);
+      setCard(null);
+    } finally { setLoading(false); }
+  };
+  
+  useEffect(() => {
+    if (selected) loadCard(selected.id, godina);
+    /* eslint-disable-next-line */
+  }, [selected, godina]);
+  
+  const filtered = useMemo(() => {
+    if (!search.trim()) return companies.slice(0, 20);
+    const q = search.toLowerCase();
+    return companies.filter((c) =>
+      (c.naziv || "").toLowerCase().includes(q) ||
+      (c.naziv_skraceni || "").toLowerCase().includes(q) ||
+      (c.pib || "").includes(q)
+    ).slice(0, 20);
+  }, [companies, search]);
+  
+  const updateMonth = async (line, month, patch) => {
+    if (!selected) return;
+    const payload = {
+      company_id: selected.id,
+      objekat_id: line.objekat_id || "",
+      godina,
+      mjesec: month.mjesec,
+      iznos: Number(patch.iznos ?? month.iznos) || 0,
+      is_paid: patch.is_paid !== undefined ? patch.is_paid : month.is_paid,
+      datum_naplate: patch.datum_naplate !== undefined ? patch.datum_naplate : (month.datum_naplate || ""),
+      napomena: patch.napomena !== undefined ? patch.napomena : (month.napomena || ""),
+    };
+    try {
+      await api.post("/finance/payments", payload);
+      await loadCard(selected.id, godina);
+    } catch (err) {
+      console.warn(err);
+      window.dispatchEvent(new CustomEvent("toast", { detail: { type: "error", msg: "Greška pri čuvanju." } }));
+    }
+  };
+  
+  // Statistika
+  const stats = useMemo(() => {
+    if (!card) return { total: 0, paid: 0, pending: 0, paidCount: 0, pendingCount: 0 };
+    let total = 0, paid = 0, paidCount = 0, pendingCount = 0;
+    const now = new Date();
+    for (const line of (card.lines || [])) {
+      for (const m of line.months) {
+        const amt = Number(m.iznos) || 0;
+        total += amt;
+        if (m.is_paid) { paid += amt; paidCount++; }
+        else {
+          const isPast = (card.godina < now.getFullYear()) || (card.godina === now.getFullYear() && m.mjesec <= now.getMonth() + 1);
+          if (amt > 0 && isPast) pendingCount++;
+        }
+      }
+    }
+    return { total, paid, pending: total - paid, paidCount, pendingCount };
+  }, [card]);
+  
+  return (
+    <div data-testid="kartica-firme-tab">
+      {/* Search + year */}
+      <div style={{ background: "white", border: "1px solid var(--border)", borderRadius: 10, padding: 14, marginBottom: 14, display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
+        <div style={{ position: "relative", flex: 1, minWidth: 260 }}>
+          <MagnifyingGlass size={14} style={{ position: "absolute", left: 11, top: 11, color: "var(--text-tertiary)", zIndex: 1 }} />
+          <input
+            className="input"
+            placeholder={selected ? selected.naziv : "Pretraži firmu po nazivu ili PIB-u..."}
+            value={search}
+            onChange={(e) => { setSearch(e.target.value); setShowDropdown(true); }}
+            onFocus={() => setShowDropdown(true)}
+            onBlur={() => setTimeout(() => setShowDropdown(false), 200)}
+            style={{ paddingLeft: 32 }}
+            data-testid="kartica-search-input"
+          />
+          {showDropdown && (search.trim() || !selected) && (
+            <div style={{ position: "absolute", top: "100%", left: 0, right: 0, marginTop: 4, background: "white", border: "1px solid var(--border)", borderRadius: 8, boxShadow: "0 8px 24px rgba(0,0,0,0.08)", maxHeight: 320, overflowY: "auto", zIndex: 20 }}>
+              {filtered.length === 0 ? (
+                <div style={{ padding: 14, color: "var(--text-tertiary)", fontSize: 13 }}>Nema rezultata.</div>
+              ) : filtered.map((c) => (
+                <div
+                  key={c.id}
+                  onMouseDown={() => { setSelected(c); setSearch(""); setShowDropdown(false); }}
+                  data-testid={`kartica-company-${c.id}`}
+                  style={{ padding: "9px 12px", cursor: "pointer", fontSize: 13, borderBottom: "1px solid var(--border-light)", transition: "background 0.1s" }}
+                  onMouseEnter={(e) => e.currentTarget.style.background = "#f1f5f9"}
+                  onMouseLeave={(e) => e.currentTarget.style.background = "white"}
+                >
+                  <div style={{ fontWeight: 500 }}>{c.naziv_skraceni || c.naziv}</div>
+                  {c.pib && <div style={{ fontSize: 11, color: "var(--text-tertiary)" }}>PIB: {c.pib}</div>}
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+        <YearPicker value={godina} onChange={setGodina} width={100} />
+        {selected && (
+          <button className="btn btn-secondary" onClick={() => { setSelected(null); setCard(null); }} data-testid="kartica-clear-btn">
+            <X size={14} /> Poništi
+          </button>
+        )}
+      </div>
+      
+      {!selected && (
+        <div style={{ background: "white", border: "1px dashed var(--border)", borderRadius: 10, padding: 60, textAlign: "center", color: "var(--text-tertiary)" }}>
+          <Briefcase size={40} weight="thin" style={{ marginBottom: 12, opacity: 0.5 }} />
+          <div style={{ fontSize: 15, fontWeight: 500, color: "var(--text-secondary)" }}>Odaberi firmu iz pretrage</div>
+          <div style={{ fontSize: 12.5, marginTop: 4 }}>Prikazuje se 12-mjesečna kartica sa statusom uplata za izabranu godinu.</div>
+        </div>
+      )}
+      
+      {selected && loading && (
+        <div style={{ padding: 60, textAlign: "center" }}><Spinner size={28} className="spin" /></div>
+      )}
+      
+      {selected && !loading && card && (
+        <>
+          {/* Company header */}
+          <div style={{ background: "white", border: "1px solid var(--border)", borderRadius: 10, padding: 16, marginBottom: 14 }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 12 }}>
+              <div style={{ width: 44, height: 44, borderRadius: 10, background: "linear-gradient(135deg, #6366f1, #8b5cf6)", display: "flex", alignItems: "center", justifyContent: "center", color: "white", fontSize: 20, fontWeight: 700 }}>
+                {(card.company.naziv || "?").trim().charAt(0).toUpperCase()}
+              </div>
+              <div style={{ flex: 1 }}>
+                <div style={{ fontSize: 16, fontWeight: 600 }}>{card.company.naziv}</div>
+                <div style={{ fontSize: 12.5, color: "var(--text-tertiary)" }}>Kartica za {card.godina}. godinu</div>
+              </div>
+            </div>
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 10 }}>
+              <StatCard label={`Ukupno ${card.godina}.`} value={`${stats.total.toFixed(2)} €`} color="#64748b" icon={CurrencyEur} />
+              <StatCard label={`Naplaćeno (${stats.paidCount}/12)`} value={`${stats.paid.toFixed(2)} €`} color="#10b981" icon={CheckCircle} />
+              <StatCard label="Preostalo" value={`${stats.pending.toFixed(2)} €`} color="#f59e0b" icon={Clock} />
+              <StatCard label="Neplaćeni mjeseci" value={String(stats.pendingCount)} color={stats.pendingCount > 0 ? "#ef4444" : "#10b981"} icon={Warning} />
+            </div>
+          </div>
+          
+          {/* Per-line 12-month cards */}
+          {(card.lines || []).map((line) => (
+            <KarticaLinija
+              key={line.objekat_id || "base"}
+              line={line}
+              godina={card.godina}
+              onUpdate={(m, patch) => updateMonth(line, m, patch)}
+            />
+          ))}
+          
+          {(!card.lines || card.lines.length === 0) && (
+            <div style={{ background: "white", border: "1px dashed var(--border)", borderRadius: 10, padding: 40, textAlign: "center", color: "var(--text-tertiary)", fontSize: 13.5 }}>
+              Firma nema definisan cjenovnik. Otvori tab "Mjesečne naknade" → "⚙️ Cjenovnik firmi" da postaviš mjesečnu naknadu.
+            </div>
+          )}
+        </>
+      )}
+    </div>
+  );
+}
+
+function KarticaLinija({ line, godina, onUpdate }) {
+  const now = new Date();
+  const isPastMonth = (m) => (godina < now.getFullYear()) || (godina === now.getFullYear() && m <= now.getMonth() + 1);
+  
+  return (
+    <div style={{ background: "white", border: "1px solid var(--border)", borderRadius: 10, marginBottom: 14, overflow: "hidden" }}>
+      <div style={{ padding: "12px 16px", borderBottom: "1px solid var(--border-light)", background: "#f8fafc", display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+          {line.objekat_id ? (
+            <span style={{ background: "#dbeafe", color: "#1e40af", padding: "3px 9px", borderRadius: 6, fontSize: 11, fontWeight: 600 }}>OBJEKAT</span>
+          ) : (
+            <span style={{ background: "#e0e7ff", color: "#4338ca", padding: "3px 9px", borderRadius: 6, fontSize: 11, fontWeight: 600 }}>SJEDIŠTE</span>
+          )}
+          <div style={{ fontWeight: 600, fontSize: 14 }}>{line.naziv}</div>
+        </div>
+        <div style={{ fontSize: 12.5, color: "var(--text-tertiary)" }}>
+          Mjesečna naknada: <span style={{ fontWeight: 600, color: "var(--text-primary)" }}>{Number(line.monthly_fee || 0).toFixed(2)} €</span>
+        </div>
+      </div>
+      <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}>
+        <thead>
+          <tr style={{ background: "#fafbfc" }}>
+            <th style={{ ...th, width: 44 }}></th>
+            <th style={th}>Mjesec</th>
+            <th style={{ ...th, width: 120 }}>Iznos (€)</th>
+            <th style={{ ...th, width: 100, textAlign: "center" }}>Naplaćeno</th>
+            <th style={{ ...th, width: 160 }}>Datum naplate</th>
+            <th style={th}>Napomena</th>
+          </tr>
+        </thead>
+        <tbody>
+          {line.months.map((m) => {
+            const isOverdue = !m.is_paid && isPastMonth(m.mjesec) && (Number(m.iznos) || 0) > 0;
+            const rowBg = m.is_paid ? "#f0fdf4" : (isOverdue ? "#fef2f2" : "white");
+            return (
+              <tr key={m.mjesec} style={{ borderTop: "1px solid var(--border-light)", background: rowBg }} data-testid={`kartica-row-${line.objekat_id || "base"}-${m.mjesec}`}>
+                <td style={{ ...td, textAlign: "center", fontSize: 11, color: "var(--text-tertiary)", fontWeight: 600 }}>{String(m.mjesec).padStart(2, "0")}</td>
+                <td style={{ ...td, fontWeight: 500 }}>
+                  {MJESECI[m.mjesec - 1]}
+                  {m.is_paid && <CheckCircle size={13} weight="fill" style={{ color: "#10b981", marginLeft: 8, verticalAlign: "middle" }} />}
+                  {isOverdue && <Warning size={13} weight="fill" style={{ color: "#ef4444", marginLeft: 8, verticalAlign: "middle" }} />}
+                </td>
+                <td style={td}>
+                  <input
+                    className="input"
+                    type="number"
+                    step="0.01"
+                    defaultValue={m.iznos ?? 0}
+                    onBlur={(e) => { const v = Number(e.target.value); if (v !== Number(m.iznos)) onUpdate(m, { iznos: v }); }}
+                    style={{ padding: "5px 8px", fontSize: 13, height: 30 }}
+                  />
+                </td>
+                <td style={{ ...td, textAlign: "center" }}>
+                  <input
+                    type="checkbox"
+                    checked={!!m.is_paid}
+                    onChange={(e) => onUpdate(m, { is_paid: e.target.checked, datum_naplate: e.target.checked && !m.datum_naplate ? new Date().toISOString().slice(0, 10) : m.datum_naplate })}
+                    style={{ width: 18, height: 18, cursor: "pointer" }}
+                    data-testid={`kartica-paid-${line.objekat_id || "base"}-${m.mjesec}`}
+                  />
+                </td>
+                <td style={td}>
+                  <input
+                    className="input"
+                    type="date"
+                    value={m.datum_naplate || ""}
+                    onChange={(e) => onUpdate(m, { datum_naplate: e.target.value })}
+                    disabled={!m.is_paid}
+                    style={{ padding: "5px 8px", fontSize: 12.5, height: 30 }}
+                  />
+                </td>
+                <td style={td}>
+                  <input
+                    className="input"
+                    placeholder="Napomena..."
+                    defaultValue={m.napomena || ""}
+                    onBlur={(e) => { if (e.target.value !== (m.napomena || "")) onUpdate(m, { napomena: e.target.value }); }}
+                    style={{ padding: "5px 8px", fontSize: 12.5, height: 30 }}
+                  />
+                </td>
+              </tr>
+            );
+          })}
+        </tbody>
+      </table>
     </div>
   );
 }

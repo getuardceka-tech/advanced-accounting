@@ -3724,6 +3724,96 @@ async def finance_summary(godina: int = None, username: str = Depends(get_curren
 
 # === ALARMI ZA NEPLAĆENE RAČUNE ===
 
+@api_router.get("/finance/company-card/{company_id}")
+async def get_company_card(company_id: str, godina: int, username: str = Depends(get_current_user)):
+    """Vraća 12-mjesečnu karticu firme za datu godinu.
+    Za svaki mjesec i za svaku 'liniju' (sjedište + svaki objekat) vraća status i podatke.
+    Struktura odgovora:
+    {
+      "company": {"id": ..., "naziv": ...},
+      "godina": 2026,
+      "lines": [
+        {"objekat_id": "", "naziv": "Sjedište", "monthly_fee": 100, "months": [
+           {"mjesec": 1, "iznos": 100, "is_paid": true, "datum_naplate": "2026-01-10", "napomena": ""},
+           ... 12 mjeseci
+        ]},
+        ...
+      ]
+    }
+    """
+    company = await db.companies.find_one({"id": company_id}, {"_id": 0, "id": 1, "naziv": 1, "naziv_skraceni": 1})
+    if not company:
+        raise HTTPException(status_code=404, detail="Firma nije pronađena")
+    
+    # Cjenovnik baza + objekti
+    base_pricing = await db.company_pricing.find_one({"company_id": company_id}, {"_id": 0}) or {}
+    base_fee = float(base_pricing.get("monthly_fee", 0) or 0)
+    obj_pricings = await db.objekat_pricing.find({"company_id": company_id}, {"_id": 0}).to_list(200)
+    all_objekti = await db.company_objekti.find({"company_id": company_id}, {"_id": 0}).to_list(200)
+    obj_naziv_by_oid = {o["id"]: o.get("naziv", "") for o in all_objekti}
+    
+    # Uplate za ovu firmu i godinu
+    payments = await db.monthly_payments.find(
+        {"company_id": company_id, "godina": godina},
+        {"_id": 0}
+    ).to_list(500)
+    # Dedupe po (oid, mjesec) - keep latest
+    pay_map: Dict = {}
+    for p in payments:
+        k = (p.get("objekat_id") or "", p.get("mjesec"))
+        cur = pay_map.get(k)
+        if not cur or (p.get("updated_at", "") or p.get("created_at", "")) > (cur.get("updated_at", "") or cur.get("created_at", "")):
+            pay_map[k] = p
+    
+    def build_months_for(oid: str, fee: float) -> List[Dict]:
+        months = []
+        for m in range(1, 13):
+            p = pay_map.get((oid, m))
+            if p:
+                months.append({
+                    "mjesec": m,
+                    "iznos": float(p.get("iznos", 0) or 0),
+                    "is_paid": bool(p.get("is_paid", False)),
+                    "datum_naplate": p.get("datum_naplate", "") or "",
+                    "napomena": p.get("napomena", "") or "",
+                })
+            else:
+                months.append({
+                    "mjesec": m,
+                    "iznos": fee,
+                    "is_paid": False,
+                    "datum_naplate": "",
+                    "napomena": "",
+                })
+        return months
+    
+    lines: List[Dict] = []
+    # Linija sjedišta: prikazuj ako je base_fee > 0 ILI nema objekata
+    if base_fee > 0 or not obj_pricings:
+        lines.append({
+            "objekat_id": "",
+            "naziv": "Sjedište" if obj_pricings else company.get("naziv_skraceni") or company.get("naziv", ""),
+            "monthly_fee": base_fee,
+            "months": build_months_for("", base_fee),
+        })
+    # Linije za objekte
+    for op in obj_pricings:
+        oid = op.get("objekat_id", "")
+        obj_fee = float(op.get("monthly_fee", 0) or 0)
+        lines.append({
+            "objekat_id": oid,
+            "naziv": obj_naziv_by_oid.get(oid, "Objekat"),
+            "monthly_fee": obj_fee,
+            "months": build_months_for(oid, obj_fee),
+        })
+    
+    return {
+        "company": {"id": company["id"], "naziv": company.get("naziv", "")},
+        "godina": godina,
+        "lines": lines,
+    }
+
+
 @api_router.get("/finance/overdue")
 async def list_overdue(days: int = 30, username: str = Depends(get_current_user)):
     """Lista firmi sa neplaćenim mjesečnim naknadama starijim od X dana.
