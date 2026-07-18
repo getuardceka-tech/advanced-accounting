@@ -140,7 +140,7 @@ export default function CompanyDetail() {
         {[
           { id: "podaci", label: "Podaci", icon: Buildings },
           { id: "objekti", label: "Objekti", icon: Buildings },
-          { id: "zaposleni", label: `Zaposleni (${employees.length})`, icon: Users },
+          { id: "zaposleni", label: `Zaposleni (${employees.filter((e) => e.status !== "arhiva").length})`, icon: Users },
           { id: "dokumenti", label: `Dokumenti (${docs.length})`, icon: FileText },
         ].map((t) => {
           const Icon = t.icon;
@@ -205,78 +205,12 @@ export default function CompanyDetail() {
       )}
 
       {tab === "zaposleni" && (
-        <div>
-          <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 14, alignItems: "center" }}>
-            <div style={{ fontSize: 13, color: "var(--text-tertiary)" }}>
-              {employees.length} {employees.length === 1 ? "zaposleni" : "zaposlenih"}
-            </div>
-            <button className="btn btn-primary" onClick={openEmpCreate} data-testid="add-employee-btn">
-              <Plus size={14} /> Dodaj zaposlenog
-            </button>
-          </div>
-
-          {employees.length === 0 ? (
-            <div className="empty">
-              <div className="empty-icon"><Users size={24} /></div>
-              <div className="empty-title">Nema unijetih zaposlenih</div>
-              <div className="empty-text">Dodajte zaposlene da možete brže generisati ugovore i odluke.</div>
-              <button className="btn btn-primary" onClick={openEmpCreate}>
-                <Plus size={14} /> Dodaj prvog zaposlenog
-              </button>
-            </div>
-          ) : (
-            <div className="table-wrap">
-              <table className="table">
-                <thead>
-                  <tr>
-                    <th>Ime i prezime</th>
-                    <th>JMBG</th>
-                    <th>Objekat</th>
-                    <th>Pozicija</th>
-                    <th>Plata (€)</th>
-                    <th>Ugovor</th>
-                    <th style={{ width: 80 }}></th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {employees.map((e) => (
-                    <tr key={e.id} data-testid={`employee-row-${e.id}`}>
-                      <td>
-                        <div style={{ fontWeight: 500 }}>{e.ime} {e.prezime}</div>
-                        {e.adresa && <div style={{ fontSize: 11.5, color: "var(--text-tertiary)" }}>{e.adresa}</div>}
-                      </td>
-                      <td style={{ fontFamily: "JetBrains Mono, monospace", fontSize: 12.5 }}>{e.jmbg || "—"}</td>
-                      <td style={{ fontSize: 12 }}>
-                        {e.objekat_naziv ? (
-                          <span style={{ display: "inline-block", padding: "2px 8px", background: "#dbeafe", color: "#1e40af", borderRadius: 10, fontSize: 11.5, fontWeight: 500 }}>
-                            {e.objekat_naziv}
-                          </span>
-                        ) : <span style={{ color: "var(--text-tertiary)" }}>—</span>}
-                      </td>
-                      <td style={{ fontSize: 12.5 }}>{e.pozicija || "—"}</td>
-                      <td style={{ fontFamily: "JetBrains Mono, monospace", fontSize: 12.5 }}>
-                        {e.plata_bruto ? `${e.plata_bruto.toFixed(2)}` : "—"}
-                      </td>
-                      <td>
-                        <span className="badge badge-neutral">{e.vrsta_ugovora === "neodredjeno" ? "Neodređeno" : "Određeno"}</span>
-                      </td>
-                      <td>
-                        <div style={{ display: "flex", gap: 4, justifyContent: "flex-end" }}>
-                          <button onClick={() => openEmpEdit(e)} style={{ border: "none", background: "transparent", padding: 5, borderRadius: 4, color: "var(--text-secondary)", cursor: "pointer", display: "flex" }}>
-                            <PencilSimple size={15} />
-                          </button>
-                          <button onClick={() => removeEmp(e)} style={{ border: "none", background: "transparent", padding: 5, borderRadius: 4, color: "var(--danger-text)", cursor: "pointer", display: "flex" }}>
-                            <Trash size={15} />
-                          </button>
-                        </div>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          )}
-        </div>
+        <ZaposleniTab
+          employees={employees}
+          openEmpCreate={openEmpCreate}
+          openEmpEdit={openEmpEdit}
+          removeEmp={removeEmp}
+        />
       )}
 
       {tab === "dokumenti" && (
@@ -364,6 +298,157 @@ export default function CompanyDetail() {
     </div>
   );
 }
+
+function ZaposleniTab({ employees, openEmpCreate, openEmpEdit, removeEmp }) {
+  const [sub, setSub] = useState("aktivni");
+  const active = employees.filter((e) => e.status !== "arhiva");
+  const arhiva = employees.filter((e) => e.status === "arhiva");
+  const list = sub === "aktivni" ? active : arhiva;
+  
+  const reasonBadge = (r) => {
+    if (r === "prestanak") return { label: "Prestanak radnog odnosa", bg: "#fee2e2", color: "#991b1b" };
+    if (r === "istekao") return { label: "Istekao ugovor", bg: "#fef3c7", color: "#92400e" };
+    if (r === "deaktiviran") return { label: "Deaktiviran", bg: "#e2e8f0", color: "#475569" };
+    return { label: "Aktivan", bg: "#dcfce7", color: "#166534" };
+  };
+  const fmtDate = (iso) => {
+    if (!iso) return "—";
+    try {
+      const dt = new Date(iso);
+      return dt.toLocaleDateString("sr-Latn", { day: "2-digit", month: "2-digit", year: "numeric" });
+    } catch { return iso; }
+  };
+  
+  return (
+    <div>
+      {/* Sub-tabs */}
+      <div style={{ display: "flex", gap: 6, marginBottom: 14, background: "#f8fafc", padding: 4, borderRadius: 8, width: "fit-content", border: "1px solid var(--border)" }}>
+        {[
+          { v: "aktivni", l: `Aktivni (${active.length})`, c: "#10b981" },
+          { v: "arhiva", l: `Prestanak / Istekli (${arhiva.length})`, c: "#ef4444" },
+        ].map((s) => (
+          <button
+            key={s.v}
+            onClick={() => setSub(s.v)}
+            data-testid={`sub-tab-${s.v}`}
+            style={{
+              padding: "6px 14px", borderRadius: 6, border: "none",
+              background: sub === s.v ? "white" : "transparent",
+              color: sub === s.v ? s.c : "var(--text-secondary)",
+              cursor: "pointer", fontSize: 12.5, fontWeight: sub === s.v ? 600 : 500,
+              boxShadow: sub === s.v ? "0 1px 3px rgba(0,0,0,0.06)" : "none",
+              transition: "all 0.15s",
+            }}
+          >
+            {s.l}
+          </button>
+        ))}
+      </div>
+      
+      <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 14, alignItems: "center" }}>
+        <div style={{ fontSize: 13, color: "var(--text-tertiary)" }}>
+          {list.length} {list.length === 1 ? "zaposleni" : "zaposlenih"}
+          {sub === "arhiva" && arhiva.length > 0 && (
+            <span style={{ marginLeft: 8, fontSize: 11.5 }}>· Zaposlenima kojima je istekao ugovor ili je prestao radni odnos.</span>
+          )}
+        </div>
+        {sub === "aktivni" && (
+          <button className="btn btn-primary" onClick={openEmpCreate} data-testid="add-employee-btn">
+            <Plus size={14} /> Dodaj zaposlenog
+          </button>
+        )}
+      </div>
+      
+      {list.length === 0 ? (
+        <div className="empty">
+          <div className="empty-icon"><Users size={24} /></div>
+          <div className="empty-title">
+            {sub === "aktivni" ? "Nema unijetih zaposlenih" : "Nema zaposlenih u arhivi"}
+          </div>
+          <div className="empty-text">
+            {sub === "aktivni"
+              ? "Dodajte zaposlene da možete brže generisati ugovore i odluke."
+              : "Ovdje se automatski pojavljuju zaposleni kojima je istekao ugovor ili im je prestao radni odnos."}
+          </div>
+          {sub === "aktivni" && (
+            <button className="btn btn-primary" onClick={openEmpCreate}>
+              <Plus size={14} /> Dodaj prvog zaposlenog
+            </button>
+          )}
+        </div>
+      ) : (
+        <div className="table-wrap">
+          <table className="table">
+            <thead>
+              <tr>
+                <th>Ime i prezime</th>
+                <th>JMBG</th>
+                <th>Objekat</th>
+                <th>Pozicija</th>
+                <th>Plata (€)</th>
+                <th>Ugovor</th>
+                {sub === "arhiva" && <th>Status / Datum</th>}
+                <th style={{ width: 80 }}></th>
+              </tr>
+            </thead>
+            <tbody>
+              {list.map((e) => {
+                const b = reasonBadge(e.arhiva_reason);
+                return (
+                  <tr key={e.id} data-testid={`employee-row-${e.id}`}>
+                    <td>
+                      <div style={{ fontWeight: 500 }}>{e.ime} {e.prezime}</div>
+                      {e.adresa && <div style={{ fontSize: 11.5, color: "var(--text-tertiary)" }}>{e.adresa}</div>}
+                    </td>
+                    <td style={{ fontFamily: "JetBrains Mono, monospace", fontSize: 12.5 }}>{e.jmbg || "—"}</td>
+                    <td style={{ fontSize: 12 }}>
+                      {e.objekat_naziv ? (
+                        <span style={{ display: "inline-block", padding: "2px 8px", background: "#dbeafe", color: "#1e40af", borderRadius: 10, fontSize: 11.5, fontWeight: 500 }}>
+                          {e.objekat_naziv}
+                        </span>
+                      ) : <span style={{ color: "var(--text-tertiary)" }}>—</span>}
+                    </td>
+                    <td style={{ fontSize: 12.5 }}>{e.pozicija || "—"}</td>
+                    <td style={{ fontFamily: "JetBrains Mono, monospace", fontSize: 12.5 }}>
+                      {e.plata_bruto ? `${e.plata_bruto.toFixed(2)}` : "—"}
+                    </td>
+                    <td>
+                      <span className="badge badge-neutral">{e.vrsta_ugovora === "neodredjeno" ? "Neodređeno" : "Određeno"}</span>
+                    </td>
+                    {sub === "arhiva" && (
+                      <td>
+                        <div style={{ display: "flex", flexDirection: "column", gap: 3 }}>
+                          <span style={{ display: "inline-block", padding: "2px 8px", background: b.bg, color: b.color, borderRadius: 10, fontSize: 11, fontWeight: 600, width: "fit-content" }}>
+                            {b.label}
+                          </span>
+                          {e.arhiva_date && (
+                            <span style={{ fontSize: 11.5, color: "var(--text-tertiary)" }}>{fmtDate(e.arhiva_date)}</span>
+                          )}
+                        </div>
+                      </td>
+                    )}
+                    <td>
+                      <div style={{ display: "flex", gap: 4, justifyContent: "flex-end" }}>
+                        <button onClick={() => openEmpEdit(e)} style={{ border: "none", background: "transparent", padding: 5, borderRadius: 4, color: "var(--text-secondary)", cursor: "pointer", display: "flex" }} title="Uredi">
+                          <PencilSimple size={15} />
+                        </button>
+                        <button onClick={() => removeEmp(e)} style={{ border: "none", background: "transparent", padding: 5, borderRadius: 4, color: "var(--danger-text)", cursor: "pointer", display: "flex" }} title="Obriši">
+                          <Trash size={15} />
+                        </button>
+                      </div>
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </div>
+  );
+}
+
+
 
 const InfoBlock = ({ title, items }) => (
   <div>

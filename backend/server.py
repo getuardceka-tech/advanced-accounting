@@ -712,6 +712,7 @@ async def delete_company(company_id: str, username: str = Depends(get_current_us
 async def list_employees(
     company_id: Optional[str] = None,
     search: Optional[str] = None,
+    status: Optional[str] = None,  # "aktivan" | "arhiva" | None (all)
     username: str = Depends(get_current_user)
 ):
     query: Dict[str, Any] = {}
@@ -731,8 +732,44 @@ async def list_employees(
     if obj_ids:
         objs = await db.company_objekti.find({"id": {"$in": obj_ids}}, {"_id": 0, "id": 1, "naziv": 1}).to_list(500)
         obj_map = {o["id"]: o["naziv"] for o in objs}
+    # Izračunaj status svakog zaposlenog: aktivan / arhiva (+ razlog)
+    today = datetime.now(timezone.utc).date()
     for e in employees:
         e["objekat_naziv"] = obj_map.get(e.get("objekat_id") or "", "")
+        arhiva_reason = ""
+        arhiva_date = ""
+        # 1) Prestanak radnog odnosa (odjava) — datum_prestanka postoji i <= danas
+        emp_prestanak = (e.get("datum_prestanka") or "").strip()
+        if emp_prestanak:
+            try:
+                dt = datetime.fromisoformat(emp_prestanak.replace("Z", "")).date()
+                if dt <= today:
+                    arhiva_reason = "prestanak"
+                    arhiva_date = emp_prestanak
+            except Exception:
+                pass
+        # 2) Istekao ugovor (određeno + datum_kraja u prošlosti)
+        if not arhiva_reason and (e.get("vrsta_ugovora") or "").lower() == "odredjeno":
+            emp_kraja = (e.get("datum_kraja") or "").strip()
+            if emp_kraja:
+                try:
+                    dt = datetime.fromisoformat(emp_kraja.replace("Z", "")).date()
+                    if dt < today:
+                        arhiva_reason = "istekao"
+                        arhiva_date = emp_kraja
+                except Exception:
+                    pass
+        # 3) Ručno deaktiviran
+        if not arhiva_reason and not e.get("aktivan", True):
+            arhiva_reason = "deaktiviran"
+        e["arhiva_reason"] = arhiva_reason  # "" = aktivan
+        e["arhiva_date"] = arhiva_date
+        e["status"] = "aktivan" if not arhiva_reason else "arhiva"
+    # Filter po statusu (nakon računanja)
+    if status == "aktivan":
+        employees = [e for e in employees if e["status"] == "aktivan"]
+    elif status == "arhiva":
+        employees = [e for e in employees if e["status"] == "arhiva"]
     return employees
 
 @api_router.get("/employees/{employee_id}")
