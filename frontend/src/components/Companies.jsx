@@ -12,8 +12,11 @@ import {
   Check,
   Spinner,
   ArrowsClockwise,
+  Printer,
 } from "@phosphor-icons/react";
 import api from "@/lib/api";
+
+const escapeHtml = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", "\"": "&quot;", "'": "&#39;" }[c]));
 
 const empty = {
   naziv: "",
@@ -77,6 +80,118 @@ export default function Companies() {
     return () => clearTimeout(t);
     // eslint-disable-next-line
   }, [search, filter]);
+
+  const handlePrint = () => {
+    const now = new Date();
+    const dateStr = now.toLocaleDateString("sr-Latn", { day: "2-digit", month: "2-digit", year: "numeric" });
+    const timeStr = now.toLocaleTimeString("sr-Latn", { hour: "2-digit", minute: "2-digit" });
+    const filterLabel = filter === "pdv" ? " · PDV obveznici" : filter === "ioppd" ? " · IOPPD obveznici" : "";
+    const searchLabel = search ? ` · Pretraga: "${escapeHtml(search)}"` : "";
+    
+    const rows = items.map((c, i) => `
+      <tr>
+        <td class="c">${i + 1}</td>
+        <td>
+          <div class="nm">${escapeHtml(c.naziv_skraceni || c.naziv || "—")}</div>
+          ${c.naziv_skraceni && c.naziv ? `<div class="sub">${escapeHtml(c.naziv)}</div>` : ""}
+        </td>
+        <td class="mono">${escapeHtml(c.pib || "—")}</td>
+        <td class="mono">${escapeHtml(c.maticni_broj || "—")}</td>
+        <td>${escapeHtml(c.direktor_ime || "—")}</td>
+        <td>${escapeHtml([c.adresa, c.grad].filter(Boolean).join(", ") || "—")}</td>
+        <td class="mono">${escapeHtml(c.telefon || "—")}</td>
+        <td class="c">${c.pdv_obveznik ? "✓" : ""}</td>
+        <td class="c">${c.ioppd_obveznik ? "✓" : ""}</td>
+      </tr>
+    `).join("");
+    
+    const html = `<!DOCTYPE html>
+<html lang="sr">
+<head>
+<meta charset="UTF-8">
+<title>Spisak firmi klijenata - ${dateStr}</title>
+<style>
+  * { box-sizing: border-box; }
+  body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; padding: 32px 28px; color: #0f172a; margin: 0; font-size: 12px; }
+  .header { display: flex; justify-content: space-between; align-items: flex-start; padding-bottom: 16px; border-bottom: 2px solid #0f172a; margin-bottom: 20px; }
+  .brand { display: flex; align-items: center; gap: 12px; }
+  .logo { width: 44px; height: 44px; border-radius: 10px; background: #0f172a; color: white; display: flex; align-items: center; justify-content: center; font-weight: 800; font-size: 18px; letter-spacing: -0.5px; }
+  .brand-name { font-size: 15px; font-weight: 700; letter-spacing: -0.2px; }
+  .brand-sub { font-size: 10.5px; color: #64748b; margin-top: 2px; text-transform: uppercase; letter-spacing: 0.5px; }
+  .meta { text-align: right; font-size: 11px; color: #64748b; }
+  .meta .date { font-weight: 600; color: #0f172a; font-size: 12px; }
+  h1 { font-size: 20px; margin: 0 0 4px; font-weight: 700; letter-spacing: -0.4px; }
+  .subtitle { font-size: 12px; color: #64748b; margin-bottom: 16px; }
+  table { width: 100%; border-collapse: collapse; font-size: 11px; }
+  thead { background: #f1f5f9; }
+  th { padding: 8px 8px; text-align: left; font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.5px; color: #475569; border-bottom: 1.5px solid #cbd5e1; }
+  td { padding: 8px 8px; border-bottom: 1px solid #e2e8f0; vertical-align: top; }
+  td.c { text-align: center; }
+  td.mono { font-family: "JetBrains Mono", Consolas, monospace; font-size: 10.5px; }
+  .nm { font-weight: 600; color: #0f172a; }
+  .sub { font-size: 10px; color: #64748b; margin-top: 2px; }
+  tbody tr:nth-child(even) { background: #fafbfc; }
+  .footer { margin-top: 20px; padding-top: 12px; border-top: 1px solid #e2e8f0; display: flex; justify-content: space-between; font-size: 10.5px; color: #64748b; }
+  .no-print { position: fixed; top: 12px; right: 12px; z-index: 999; }
+  .btn { padding: 8px 18px; font-size: 13px; font-weight: 600; border: none; border-radius: 6px; cursor: pointer; background: #0f172a; color: white; box-shadow: 0 2px 8px rgba(0,0,0,0.15); }
+  @media print {
+    body { padding: 16px 12px; }
+    .no-print { display: none !important; }
+    thead { display: table-header-group; }
+    tr { page-break-inside: avoid; }
+  }
+  @page { size: A4 landscape; margin: 14mm; }
+</style>
+</head>
+<body>
+  <div class="no-print"><button class="btn" onclick="window.print()">🖨️ Štampaj</button></div>
+  <div class="header">
+    <div class="brand">
+      <div class="logo">AA</div>
+      <div>
+        <div class="brand-name">Advanced Accounting</div>
+        <div class="brand-sub">Agencija za računovodstvo · Ulcinj</div>
+      </div>
+    </div>
+    <div class="meta">
+      <div class="date">${dateStr} · ${timeStr}</div>
+      <div>Ukupno: <strong>${items.length}</strong> ${items.length === 1 ? "firma" : "firmi"}</div>
+    </div>
+  </div>
+  <h1>Spisak firmi klijenata</h1>
+  <div class="subtitle">Aktivna baza klijenata${filterLabel}${searchLabel}</div>
+  <table>
+    <thead>
+      <tr>
+        <th style="width:32px">#</th>
+        <th>Naziv firme</th>
+        <th style="width:100px">PIB</th>
+        <th style="width:100px">Matični</th>
+        <th style="width:150px">Direktor</th>
+        <th>Adresa</th>
+        <th style="width:100px">Telefon</th>
+        <th class="c" style="width:38px">PDV</th>
+        <th class="c" style="width:52px">IOPPD</th>
+      </tr>
+    </thead>
+    <tbody>${rows || `<tr><td colspan="9" style="text-align:center;padding:24px;color:#94a3b8">Nema firmi za prikaz</td></tr>`}</tbody>
+  </table>
+  <div class="footer">
+    <div>Generisano iz Advanced Accounting sistema</div>
+    <div>${dateStr} · ${timeStr}</div>
+  </div>
+  <script>window.addEventListener('load', function() { setTimeout(function(){ window.print(); }, 300); });</script>
+</body>
+</html>`;
+    
+    const w = window.open("", "_blank", "width=1200,height=800");
+    if (!w) {
+      alert("Molimo omogućite pop-up prozore da biste odštampali spisak.");
+      return;
+    }
+    w.document.write(html);
+    w.document.close();
+  };
 
   const openCreate = () => {
     setEditing(null);
@@ -198,9 +313,14 @@ export default function Companies() {
             {items.length} {items.length === 1 ? "firma" : "firmi"} u bazi
           </p>
         </div>
-        <button className="btn btn-primary" onClick={openCreate} data-testid="add-company-btn">
-          <Plus size={15} /> Dodaj firmu
-        </button>
+        <div style={{ display: "flex", gap: 8 }}>
+          <button className="btn btn-secondary" onClick={handlePrint} data-testid="print-companies-btn" title="Štampaj spisak firmi">
+            <Printer size={15} /> Štampaj spisak
+          </button>
+          <button className="btn btn-primary" onClick={openCreate} data-testid="add-company-btn">
+            <Plus size={15} /> Dodaj firmu
+          </button>
+        </div>
       </div>
 
       <div
