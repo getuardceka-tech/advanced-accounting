@@ -186,6 +186,8 @@ class EmployeeCreate(BaseModel):
     datum_prestanka: Optional[str] = ""
     vrsta_ugovora: Optional[str] = "neodredjeno"
     dopunski_rad: Optional[bool] = False
+    primary_employer: Optional[str] = ""
+    dopunski_mjesto_rada: Optional[str] = ""
     radno_vrijeme: Optional[str] = "puno"
     sati_sedmicno: Optional[int] = 40
     telefon: Optional[str] = ""
