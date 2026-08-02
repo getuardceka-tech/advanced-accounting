@@ -156,6 +156,8 @@ class Employee(BaseModel):
     datum_prestanka: str = ""  # datum prestanka radnog odnosa (odjava)
     vrsta_ugovora: str = "neodredjeno"  # odredjeno/neodredjeno
     dopunski_rad: bool = False  # da li je zaposlen po osnovu dopunskog rada (kod drugog poslodavca)
+    primary_employer: str = ""  # kod kog poslodavca je zaposlen puno radno vrijeme (za dopunski rad)
+    dopunski_mjesto_rada: str = ""  # mjesto gdje će obavljati poslove dopunskog rada
     radno_vrijeme: str = "puno"  # puno/skraceno
     sati_sedmicno: int = 40  # 40 = puno radno vrijeme, npr. 20 = pola
     telefon: str = ""
@@ -1517,16 +1519,29 @@ def _build_replacements(company: dict, employee: Optional[dict], agency: dict, c
         else:
             repl["15.06.2026 -30.0 9 .2026"] = "____________ - ____________"
             repl["15.06.2026 -30.09.2026"] = "____________ - ____________"
-        # Sample poslodavac gde je izvršilac trenutno zaposlen — ostaviti blank
-        repl["kod poslodavca DOO EKO-AL PIB: 02804794"] = "kod poslodavca ____________________________"
-        repl["kod poslodavca DOO EKO-AL"] = "kod poslodavca ____________________________"
-        repl["DOO EKO-AL"] = "____________________________"
-        repl["PIB: 02804794"] = ""
-        # RESTORAN HIJA → naziv objekta ako postoji, inače blank
-        objekat_val = (custom.get("naziv_objekta") or "").strip()
-        if objekat_val:
-            repl["u RESTORAN HIJA"] = f"u {objekat_val}"
-            repl["RESTORAN HIJA"] = objekat_val
+        # Sample poslodavac gdje je izvršilac trenutno zaposlen — koristi employee.primary_employer
+        primary_emp = (employee.get("primary_employer", "") or "").strip() if employee else ""
+        if primary_emp:
+            repl["kod poslodavca DOO EKO-AL PIB: 02804794"] = f"kod poslodavca {primary_emp}"
+            repl["kod poslodavca  DOO EKO-AL PIB: 02804794"] = f"kod poslodavca {primary_emp}"
+            repl["kod poslodavca DOO EKO-AL"] = f"kod poslodavca {primary_emp}"
+            repl["DOO EKO-AL PIB: 02804794"] = primary_emp
+            repl["DOO EKO-AL"] = primary_emp
+            repl["PIB: 02804794"] = ""
+        else:
+            repl["kod poslodavca DOO EKO-AL PIB: 02804794"] = "kod poslodavca ____________________________"
+            repl["kod poslodavca  DOO EKO-AL PIB: 02804794"] = "kod poslodavca ____________________________"
+            repl["kod poslodavca DOO EKO-AL"] = "kod poslodavca ____________________________"
+            repl["DOO EKO-AL"] = "____________________________"
+            repl["PIB: 02804794"] = ""
+        # RESTORAN HIJA → mjesto gdje će obavljati poslove dopunskog rada
+        mjesto_dr = (employee.get("dopunski_mjesto_rada", "") or "").strip() if employee else ""
+        # Fallback na naziv objekta ako je popunjen u modalu
+        if not mjesto_dr:
+            mjesto_dr = (custom.get("naziv_objekta") or "").strip()
+        if mjesto_dr:
+            repl["u RESTORAN HIJA"] = f"u {mjesto_dr}"
+            repl["RESTORAN HIJA"] = mjesto_dr
         else:
             repl["u RESTORAN HIJA"] = "u ________________________"
             repl["RESTORAN HIJA"] = "________________________"

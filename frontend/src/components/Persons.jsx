@@ -16,6 +16,8 @@ const empEmpty = {
   datum_pocetka: "", datum_kraja: "", datum_prestanka: "",
   vrsta_ugovora: "neodredjeno", radno_vrijeme: "puno", sati_sedmicno: 40,
   dopunski_rad: false,
+  primary_employer: "",
+  dopunski_mjesto_rada: "",
   telefon: "", email: "", aktivan: true,
 };
 
@@ -588,6 +590,26 @@ function PersonModal({ form, setForm, editing, companies, onSave, onClose, onSav
                 </div>
               </div>
             </label>
+            
+            {/* Dodatna polja kada je dopunski_rad označen */}
+            {form.dopunski_rad && (
+              <div style={{ marginTop: 12, paddingTop: 12, borderTop: "1px dashed #93c5fd", display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
+                <Field
+                  label="Poslodavac gdje radi puno radno vrijeme"
+                  value={form.primary_employer}
+                  onChange={(v) => u("primary_employer", v)}
+                  placeholder="npr. DOO EKO-AL PIB: 02804794"
+                  testid="person-primary-employer"
+                />
+                <Field
+                  label="Mjesto obavljanja dopunskog rada"
+                  value={form.dopunski_mjesto_rada}
+                  onChange={(v) => u("dopunski_mjesto_rada", v)}
+                  placeholder="npr. RESTORAN HIJA / objekat u Ulcinju"
+                  testid="person-dopunski-mjesto"
+                />
+              </div>
+            )}
           </div>
           {error && (
             <div style={{ marginTop: 14, padding: "10px 12px", background: "var(--danger-bg)", color: "var(--danger-text)", borderRadius: 6, fontSize: 13 }}>

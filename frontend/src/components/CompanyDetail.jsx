@@ -158,6 +158,8 @@ const empEmpty = {
   datum_pocetka: "", datum_kraja: "", datum_prestanka: "",
   vrsta_ugovora: "neodredjeno", radno_vrijeme: "puno",
   dopunski_rad: false,
+  primary_employer: "",
+  dopunski_mjesto_rada: "",
   telefon: "", email: "", aktivan: true,
 };
 
@@ -843,6 +845,25 @@ function EmployeeModal({ form, setForm, editing, objekti = [], onSave, onClose, 
                 </div>
               </div>
             </label>
+            
+            {form.dopunski_rad && (
+              <div style={{ marginTop: 12, paddingTop: 12, borderTop: "1px dashed #93c5fd", display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
+                <Field
+                  label="Poslodavac gdje radi puno radno vrijeme"
+                  value={form.primary_employer}
+                  onChange={(v) => u("primary_employer", v)}
+                  placeholder="npr. DOO EKO-AL PIB: 02804794"
+                  testid="emp-primary-employer"
+                />
+                <Field
+                  label="Mjesto obavljanja dopunskog rada"
+                  value={form.dopunski_mjesto_rada}
+                  onChange={(v) => u("dopunski_mjesto_rada", v)}
+                  placeholder="npr. RESTORAN HIJA"
+                  testid="emp-dopunski-mjesto"
+                />
+              </div>
+            )}
           </div>
           {error && <div style={{ marginTop: 14, padding: "10px 12px", background: "var(--danger-bg)", color: "var(--danger-text)", borderRadius: 6, fontSize: 13 }}>{error}</div>}
         </div>
