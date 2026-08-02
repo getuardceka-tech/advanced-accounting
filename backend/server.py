@@ -1582,9 +1582,14 @@ def _build_replacements(company: dict, employee: Optional[dict], agency: dict, c
         # Broj primjeraka
         repl["u 4 istovjetna primjerka od kojih po 1"] = "u ____ istovjetna primjerka od kojih po ____"
         # Skraćeni naziv sa oznakama za potpis (DOO "UNICO HIJA " ULCINJ)
-        repl['DOO "UNICO HIJA " ULCINJ'] = (company.get("naziv_skraceni") or company_naziv or "____________").strip()
-        repl['DOO "UNICO HIJA" ULCINJ'] = (company.get("naziv_skraceni") or company_naziv or "____________").strip()
-        repl['"UNICO HIJA DOO"'] = (company.get("naziv_skraceni") or company_naziv or "____________").strip()
+        naziv_skr_val = (company.get("naziv_skraceni") or company_naziv or "____________").strip()
+        # NAJDUŽE VARIJANTE PRVE — moraju biti duže od "UNICO HIJA" da ne dođe do dupliranja "DOO DOO"
+        repl['DOO "UNICO HIJA DOO"'] = naziv_skr_val  # Član 1 template — sprječava "DOO DOO ..."
+        repl['DOO "UNICO HIJA " ULCINJ'] = naziv_skr_val
+        repl['DOO "UNICO HIJA" ULCINJ'] = naziv_skr_val
+        repl['DOO "UNICO HIJA "ULCINJ'] = naziv_skr_val  # signature block bez razmaka
+        repl['DOO "UNICO HIJA"ULCINJ'] = naziv_skr_val
+        repl['"UNICO HIJA DOO"'] = naziv_skr_val
     
     # Sample datumi koji su today-dependent:
     repl["01.06.2026"] = today_str

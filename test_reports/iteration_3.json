@@ -1,0 +1,30 @@
+{
+  "summary": "Verified fix for 'DOO DOO' duplication bug in 'UGOVOR O DOPUNSKOM RADU.docx' template. Generated document for company DOO ADVANCED ACCOUNTING ULCINJ (id d3fdf006-...) with employee EGZON CEKA (dopunski_rad=true), downloaded the .docx, parsed with python-docx, and asserted: (1) no 'DOO DOO' anywhere in document, (2) Član 1 reads 'Poslodavca DOO ADVANCED ACCOUNTING ULCINJ obavlja...' with single DOO, (3) signature block bottom shows employee name left and 'DOO ADVANCED ACCOUNTING ULCINJ' right without duplication, (4) no leftover 'UNICO HIJA' placeholder, and (5) previously-fixed fields still render correctly (5 radnih dana, do 10 u mjesecu za prethodni mjesec, primary_employer, dopunski_mjesto_rada, plata_neto 600.00, sati_sedmicno 40). All 9 pytest tests PASS. Visual inspection of paragraphs confirms clean output.",
+  "backend_issues": {
+    "critical": [],
+    "minor": []
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_dopunski_doo.py",
+    "/app/test_reports/pytest/pytest_dopunski_doo.xml"
+  ],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "Note: Employee EGZON CEKA has empty datum_pocetka/datum_kraja, so Član 5 renders as 'od ____________ - ____________ godine' (blank placeholders). This is expected behavior since fields are empty, not a bug — but if the developer expects auto-fill from those fields, they should verify with an employee having populated dates."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_dopunski_doo.py"
+  ],
+  "success_rate": {"backend": "100%", "frontend": "N/A"},
+  "seed_data_creation": "None — used existing company d3fdf006-a6d9-4f4f-ab00-7018a1f30a54 and employee 63283aaa-551b-4d67-9033-c946b336a610 as provided.",
+  "should_call_test_agent_after_fix": false,
+  "should_main_agent_self_test": false,
+  "test_credentials": "getuard / Getuard1994. (from /app/memory/test_credentials.md)",
+  "context_for_next_testing_agent": "test_dopunski_doo.py covers the DOO-DOO duplication bug for UGOVOR O DOPUNSKOM RADU.docx. Login endpoint accepts 'username' field (not email) and returns access_token. Company naziv_skraceni may be empty in DB; _build_replacements falls back to company_naziv. Container /api routes go via REACT_APP_BACKEND_URL. Sample paragraph verified: Član 1 line = 'Izvršilac posla preuzima obavezu da za Poslodavca DOO ADVANCED ACCOUNTING ULCINJ obavlja sljedeće poslove: PRODAVAC.' Signature line = 'EGZON CEKA ... DOO ADVANCED ACCOUNTING ULCINJ'.",
+  "rca_of_the_issue": "Original bug: template contained literal 'DOO \"UNICO HIJA DOO\"' and replacement dict only had inner key '\"UNICO HIJA DOO\"' → replaced with naziv_skraceni which itself starts with 'DOO', yielding 'DOO DOO ADVANCED...'. Fix in server.py line 1587 adds longer key 'DOO \"UNICO HIJA DOO\"' → naziv_skr_val; _docx_replace sorts keys by length desc so the longer pattern runs first, consuming the leading 'DOO' from the template. Verified working end-to-end."
+}
