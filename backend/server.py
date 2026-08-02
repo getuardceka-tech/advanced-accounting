@@ -663,14 +663,23 @@ async def list_companies(
 
 @api_router.get("/companies/irms-alerts")
 async def irms_alerts(username: str = Depends(get_current_user)):
-    """Vraća listu firmi čiji IRMS status NIJE 'Registrovan' (npr. u likvidaciji, stečaju, mirovanje)."""
-    cursor = db.companies.find(
-        {
-            "irms_status": {"$exists": True, "$ne": "", "$nin": ["Registrovan", ""]}
-        },
+    """Vraća listu firmi čiji IRMS status ukazuje na problem — NEAKTIVAN, U OBRADI, U LIKVIDACIJI, itd.
+    Aktivne firme ('Registrovan - Aktivan' ili 'Registrovan' bez sufiksa) se NE prikazuju u upozorenjima.
+    """
+    all_cursor = db.companies.find(
+        {"irms_status": {"$exists": True, "$ne": ""}},
         {"_id": 0, "id": 1, "naziv": 1, "pib": 1, "irms_status": 1, "irms_checked_at": 1}
     )
-    return [doc async for doc in cursor]
+    result = []
+    async for doc in all_cursor:
+        status = (doc.get("irms_status") or "").strip()
+        low = status.lower()
+        # Aktivne firme preskoči
+        if low == "registrovan" or "aktivan" in low and "neaktivan" not in low:
+            continue
+        # Sve ostalo (Neaktivan, U obradi, U likvidaciji, U stečaju, Mirovanje, itd.) = upozorenje
+        result.append(doc)
+    return result
 
 
 @api_router.get("/companies/{company_id}")

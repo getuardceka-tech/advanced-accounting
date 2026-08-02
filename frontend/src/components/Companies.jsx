@@ -268,10 +268,15 @@ export default function Companies() {
           irms_checked_at: new Date().toISOString(),
         }));
         // Obojen status banner
-        if (status === "Registrovan") {
-          setLookupMsg(`✓ Podaci preuzeti sa IRMS portala (Status: Registrovan)`);
+        const statusLow = (status || "").toLowerCase();
+        if (statusLow === "registrovan" || (statusLow.includes("aktivan") && !statusLow.includes("neaktivan"))) {
+          setLookupMsg(`✓ Podaci preuzeti sa IRMS portala — Firma je AKTIVNA`);
+        } else if (statusLow.includes("neaktivan")) {
+          setLookupMsg(`⚠ Podaci preuzeti, ali firma je NEAKTIVNA u Poreskoj upravi`);
+        } else if (statusLow.includes("obradi") || statusLow.includes("obradu")) {
+          setLookupMsg(`⏳ Podaci preuzeti, status u Poreskoj upravi: U OBRADI`);
         } else if (status) {
-          setLookupMsg(`⚠ PAŽNJA — IRMS status firme: ${status}. Firma možda nije aktivna.`);
+          setLookupMsg(`⚠ Podaci preuzeti — IRMS status: ${status}`);
         } else {
           setLookupMsg(`✓ Podaci preuzeti sa IRMS portala`);
         }
@@ -441,15 +446,27 @@ export default function Companies() {
                       {c.pdv_obveznik && <span className="badge badge-blue">PDV</span>}
                       {c.ioppd_obveznik && <span className="badge badge-neutral">IOPPD</span>}
                       {!c.aktivna && <span className="badge badge-danger">Neaktivna</span>}
-                      {c.irms_status && c.irms_status !== "Registrovan" && (
-                        <span
-                          className="badge"
-                          style={{ background: "#fef2f2", color: "#991b1b", border: "1px solid #fca5a5" }}
-                          title={`IRMS status: ${c.irms_status}`}
-                        >
-                          ⚠ {c.irms_status}
-                        </span>
-                      )}
+                      {c.irms_status && (() => {
+                        const st = (c.irms_status || "").toLowerCase();
+                        // Aktivne firme — bez upozorenja
+                        if (st === "registrovan" || (st.includes("aktivan") && !st.includes("neaktivan"))) return null;
+                        const isNeakt = st.includes("neaktivan");
+                        const isObrada = st.includes("obradi") || st.includes("obradu");
+                        const style = isNeakt
+                          ? { bg: "#fee2e2", color: "#991b1b", border: "#fca5a5", label: "NEAKTIVNA" }
+                          : isObrada
+                          ? { bg: "#fef3c7", color: "#92400e", border: "#fcd34d", label: "U OBRADI" }
+                          : { bg: "#fef2f2", color: "#991b1b", border: "#fca5a5", label: c.irms_status.toUpperCase() };
+                        return (
+                          <span
+                            className="badge"
+                            style={{ background: style.bg, color: style.color, border: `1px solid ${style.border}`, fontWeight: 700, letterSpacing: 0.3 }}
+                            title={`IRMS status: ${c.irms_status}`}
+                          >
+                            ⚠ {style.label}
+                          </span>
+                        );
+                      })()}
                     </div>
                   </td>
                   <td onClick={(e) => e.stopPropagation()}>

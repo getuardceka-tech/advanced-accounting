@@ -135,31 +135,41 @@ export default function Dashboard() {
               }
             />
             <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(280px, 1fr))", gap: 10, marginTop: 8 }}>
-              {irmsAlerts.map((a) => (
-                <div
-                  key={a.id}
-                  onClick={() => navigate(`/firme/${a.id}`)}
-                  data-testid={`irms-alert-${a.pib}`}
-                  style={{
-                    background: "white",
-                    border: "1px solid #fca5a5",
-                    borderRadius: 8,
-                    padding: 10,
-                    cursor: "pointer",
-                  }}
-                >
-                  <div style={{ fontWeight: 600, fontSize: 13, marginBottom: 2 }}>{a.naziv}</div>
-                  <div style={{ fontSize: 11.5, color: "#6b7280", marginBottom: 4, fontFamily: "JetBrains Mono, monospace" }}>
-                    PIB {a.pib}
-                  </div>
-                  <span
-                    className="badge"
-                    style={{ background: "#fef2f2", color: "#991b1b", border: "1px solid #fca5a5", fontSize: 11 }}
+              {irmsAlerts.map((a) => {
+                const status = (a.irms_status || "").toLowerCase();
+                const isNeaktivan = status.includes("neaktivan");
+                const isUObradi = status.includes("obradi") || status.includes("obradu");
+                const badgeStyle = isNeaktivan
+                  ? { bg: "#fee2e2", color: "#991b1b", border: "#fca5a5", label: "NEAKTIVNA" }
+                  : isUObradi
+                  ? { bg: "#fef3c7", color: "#92400e", border: "#fcd34d", label: "U OBRADI" }
+                  : { bg: "#fef2f2", color: "#991b1b", border: "#fca5a5", label: (a.irms_status || "").toUpperCase() };
+                return (
+                  <div
+                    key={a.id}
+                    onClick={() => navigate(`/firme/${a.id}`)}
+                    data-testid={`irms-alert-${a.pib}`}
+                    style={{
+                      background: "white",
+                      border: `1px solid ${badgeStyle.border}`,
+                      borderRadius: 8,
+                      padding: 10,
+                      cursor: "pointer",
+                    }}
                   >
-                    ⚠ {a.irms_status}
-                  </span>
-                </div>
-              ))}
+                    <div style={{ fontWeight: 600, fontSize: 13, marginBottom: 2 }}>{a.naziv}</div>
+                    <div style={{ fontSize: 11.5, color: "#6b7280", marginBottom: 6, fontFamily: "JetBrains Mono, monospace" }}>
+                      PIB {a.pib}
+                    </div>
+                    <span
+                      className="badge"
+                      style={{ background: badgeStyle.bg, color: badgeStyle.color, border: `1px solid ${badgeStyle.border}`, fontSize: 10.5, fontWeight: 700, letterSpacing: 0.4 }}
+                    >
+                      ⚠ {badgeStyle.label}
+                    </span>
+                  </div>
+                );
+              })}
             </div>
           </div>
         )}
