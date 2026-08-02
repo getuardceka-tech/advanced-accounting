@@ -1,0 +1,29 @@
+{
+  "summary": "Verified signature-line wrap fix for UGOVOR O RADU Zaposlenih.docx and UGOVOR O RADU DIREKTOR.docx. Both templates now render paragraph 36 (labels) and paragraph 38 (signature lines) with center-tab (4535) + right-tab (9071) stops, ensuring no wrap. Dopunski DOO-DOO regression check also passes. 3/3 pytest tests pass.",
+  "backend_issues": {
+    "critical": [],
+    "minor": [
+      {
+        "endpoint": "/api/documents/generate (UGOVOR O RADU Zaposlenih.docx & DIREKTOR.docx)",
+        "issue": "Review-request expected p36 text 'Zaposleni\\tPoslodavac' (single tab), but actual generated text is 'Zaposleni\\t\\tPoslodavac' (two tabs). This is FUNCTIONALLY CORRECT: with center(4535)+right(9071) tab stops in place, two tabs are required so 'Poslodavac' lands on the right stop (9071), vertically aligning with the right underscore group in p38. A single tab would land 'Poslodavac' at 4535 (center) — misaligned. Test was updated to accept the correct behavior. Main agent may want to update the review-request wording to reflect '\\t\\t' for the label paragraph."
+      }
+    ]
+  },
+  "frontend_issues": {"ui_bugs": [], "integration_issues": [], "design_issues": []},
+  "test_report_links": [
+    "/app/backend/tests/test_ugovor_signature_wrap.py",
+    "/app/test_reports/pytest/pytest_ugovor_signature_wrap.xml"
+  ],
+  "action_items": [
+    "No fixes required. Signature fix on both templates works as intended. Consider clarifying in future docs that label paragraph uses TWO tabs (skipping the center stop) to align with the right underscore column."
+  ],
+  "critical_code_review_comments": [],
+  "updated_files": ["/app/backend/tests/test_ugovor_signature_wrap.py"],
+  "success_rate": {"backend": "100%", "frontend": "n/a"},
+  "seed_data_creation": "Used existing company d3fdf006-a6d9-4f4f-ab00-7018a1f30a54 and employee MIRSADA CEKOVIQ (8326b941-1f7d-49d9-adb1-129d33288d71) for Zaposlenih & Direktor; GETUARD CEKOVIQ (cc216543-...) for Dopunski regression.",
+  "should_call_test_agent_after_fix": false,
+  "should_main_agent_self_test": true,
+  "test_credentials": "getuard / Getuard1994. (from /app/memory/test_credentials.md)",
+  "context_for_next_testing_agent": "test_ugovor_signature_wrap.py verifies: (1) p36 contains 'Zaposleni' + 'Poslodavac' separated by tab(s) — two tabs in current impl, (2) p38 = '_______________________\\tM.P.\\t_______________________', (3) both paragraphs have <w:tabs> with center@4535 + right@9071, (4) dopunski template no 'DOO DOO'. All 3 tests pass. Uses REACT_APP_BACKEND_URL from frontend/.env.",
+  "rca_of_the_issue": "Original .docx templates used bare \\t characters with no defined tab stops. Word/python-docx laid tabs out on default 720-twip grid, causing the final '___' group to wrap to a new line under 'Zaposleni'. Fix adds explicit <w:tabs> with center-tab@4535 and right-tab@9071 to paragraphs 36 and 38, forcing 3-column alignment (left | center | right) without wrap."
+}
