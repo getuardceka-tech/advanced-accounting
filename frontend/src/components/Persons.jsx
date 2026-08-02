@@ -15,6 +15,7 @@ const empEmpty = {
   pozicija: "", strucna_sprema: "", plata_bruto: 0, plata_neto: 0,
   datum_pocetka: "", datum_kraja: "", datum_prestanka: "",
   vrsta_ugovora: "neodredjeno", radno_vrijeme: "puno", sati_sedmicno: 40,
+  dopunski_rad: false,
   telefon: "", email: "", aktivan: true,
 };
 
@@ -109,9 +110,13 @@ export default function Persons() {
 
   const printUgovor = async (p, opts = {}) => {
     if (!p.id || !p.company_id) return;
+    // Ako je zaposlen po osnovu dopunskog rada — koristi drugi šablon
+    const template = p.dopunski_rad
+      ? "UGOVOR O DOPUNSKOM RADU.docx"
+      : "UGOVOR O RADU Zaposlenih.docx";
     try {
       const r = await api.post("/documents/generate", {
-        template_filename: "UGOVOR O RADU Zaposlenih.docx",
+        template_filename: template,
         company_id: p.company_id,
         employee_id: p.id,
       });
@@ -348,16 +353,31 @@ export default function Persons() {
                     )}
                   </td>
                   <td>
-                    {p.pozicija ? (
-                      <span className="badge badge-blue">{p.pozicija}</span>
-                    ) : <span style={{ color: "var(--text-tertiary)" }}>—</span>}
+                    <div style={{ display: "flex", flexDirection: "column", gap: 3, alignItems: "flex-start" }}>
+                      {p.pozicija ? (
+                        <span className="badge badge-blue">{p.pozicija}</span>
+                      ) : <span style={{ color: "var(--text-tertiary)" }}>—</span>}
+                      {p.dopunski_rad && (
+                        <span
+                          style={{ padding: "2px 7px", background: "#dbeafe", color: "#1e40af", border: "1px solid #93c5fd", borderRadius: 10, fontSize: 10, fontWeight: 700, letterSpacing: 0.3 }}
+                          title="Registrovan po ugovoru o dopunskom radu"
+                        >
+                          DOPUNSKI RAD
+                        </span>
+                      )}
+                    </div>
                   </td>
                   <td style={{ fontFamily: "JetBrains Mono, monospace", fontSize: 12.5 }}>
                     {p.plata_bruto ? `${Number(p.plata_bruto).toFixed(2)} €` : "—"}
                   </td>
                   <td>
                     <div style={{ display: "flex", gap: 4, justifyContent: "flex-end" }}>
-                      <button onClick={() => printUgovor(p)} style={{ border: "none", background: "transparent", padding: 5, borderRadius: 4, color: "var(--accent)", cursor: "pointer", display: "flex" }} data-testid={`print-ugovor-${p.id}`} title="Štampaj ugovor o radu">
+                      <button
+                        onClick={() => printUgovor(p)}
+                        style={{ border: "none", background: "transparent", padding: 5, borderRadius: 4, color: p.dopunski_rad ? "#1e40af" : "var(--accent)", cursor: "pointer", display: "flex" }}
+                        data-testid={`print-ugovor-${p.id}`}
+                        title={p.dopunski_rad ? "Štampaj Ugovor o dopunskom radu" : "Štampaj ugovor o radu"}
+                      >
                         <Printer size={15} />
                       </button>
                       <button onClick={() => openEdit(p)} style={{ border: "none", background: "transparent", padding: 5, borderRadius: 4, color: "var(--text-secondary)", cursor: "pointer", display: "flex" }} data-testid={`edit-person-${p.id}`}>
@@ -548,6 +568,27 @@ function PersonModal({ form, setForm, editing, companies, onSave, onClose, onSav
             <Field label="Telefon" value={form.telefon} onChange={(v) => u("telefon", v)} />
             <Field label="Email" value={form.email} onChange={(v) => u("email", v)} />
           </div>
+          
+          {/* Dopunski rad checkbox */}
+          <div style={{ marginTop: 12, padding: "12px 14px", background: form.dopunski_rad ? "#eff6ff" : "#f8fafc", border: `1px solid ${form.dopunski_rad ? "#93c5fd" : "var(--border)"}`, borderRadius: 8, transition: "all 0.15s" }}>
+            <label style={{ display: "flex", alignItems: "flex-start", gap: 10, cursor: "pointer" }} data-testid="person-dopunski-rad-label">
+              <input
+                type="checkbox"
+                checked={!!form.dopunski_rad}
+                onChange={(e) => u("dopunski_rad", e.target.checked)}
+                style={{ width: 18, height: 18, marginTop: 2, cursor: "pointer", accentColor: "#3b82f6" }}
+                data-testid="person-dopunski-rad"
+              />
+              <div style={{ flex: 1 }}>
+                <div style={{ fontSize: 13.5, fontWeight: 600, color: form.dopunski_rad ? "#1e40af" : "var(--text-primary)" }}>
+                  Registrovati po osnovu ugovora o dopunskom radu
+                </div>
+                <div style={{ fontSize: 11.5, color: "var(--text-tertiary)", marginTop: 3, lineHeight: 1.4 }}>
+                  Lice je već zaposleno kod drugog poslodavca sa punim radnim vremenom (član 202. Zakona o radu). Dugme "Sačuvaj i štampaj ugovor" će automatski generisati <strong>Ugovor o dopunskom radu</strong>.
+                </div>
+              </div>
+            </label>
+          </div>
           {error && (
             <div style={{ marginTop: 14, padding: "10px 12px", background: "var(--danger-bg)", color: "var(--danger-text)", borderRadius: 6, fontSize: 13 }}>
               {error}
@@ -561,10 +602,11 @@ function PersonModal({ form, setForm, editing, companies, onSave, onClose, onSav
             onClick={onSaveAndPrint}
             disabled={saving || !form.ime || !form.prezime || !form.company_id}
             data-testid="save-and-print-ugovor-btn"
-            title="Sačuvaj i odmah generiši ugovor o radu"
+            title={form.dopunski_rad ? "Sačuvaj i generiši Ugovor o dopunskom radu" : "Sačuvaj i odmah generiši ugovor o radu"}
+            style={form.dopunski_rad ? { background: "#dbeafe", borderColor: "#93c5fd", color: "#1e40af" } : undefined}
           >
             <Printer size={14} />
-            Sačuvaj i štampaj ugovor
+            {form.dopunski_rad ? "Sačuvaj i štampaj Dopunski rad" : "Sačuvaj i štampaj ugovor"}
           </button>
           {form.is_stranac && (
             <>
