@@ -157,6 +157,7 @@ const empEmpty = {
   pozicija: "", strucna_sprema: "", plata_bruto: 0, plata_neto: 0,
   datum_pocetka: "", datum_kraja: "", datum_prestanka: "",
   vrsta_ugovora: "neodredjeno", radno_vrijeme: "puno",
+  dopunski_rad: false,
   telefon: "", email: "", aktivan: true,
 };
 
@@ -502,7 +503,7 @@ function ZaposleniTab({ company, employees, openEmpCreate, openEmpEdit, removeEm
         <td class="mono">${esc(e.jmbg || "—")}</td>
         <td>${e.objekat_naziv ? esc(e.objekat_naziv) : "<span class=\"muted\">—</span>"}</td>
         <td>${esc(e.pozicija || "—")}</td>
-        <td>${e.vrsta_ugovora === "neodredjeno" ? "Neodređeno" : "Određeno"}</td>
+        <td>${e.vrsta_ugovora === "neodredjeno" ? "Neodređeno" : "Određeno"}${e.dopunski_rad ? ' <span style="display:inline-block;padding:1px 6px;background:#dbeafe;color:#1e40af;border-radius:6px;font-size:9px;font-weight:700;letter-spacing:0.3px;margin-left:4px">DOPUNSKI</span>' : ""}</td>
         <td class="mono">${esc(fmtDate(e.datum_pocetka))}</td>
         <td>${lastCol}</td>
       </tr>`;
@@ -693,7 +694,18 @@ function ZaposleniTab({ company, employees, openEmpCreate, openEmpEdit, removeEm
                       {e.plata_bruto ? `${e.plata_bruto.toFixed(2)}` : "—"}
                     </td>
                     <td>
-                      <span className="badge badge-neutral">{e.vrsta_ugovora === "neodredjeno" ? "Neodređeno" : "Određeno"}</span>
+                      <div style={{ display: "flex", flexDirection: "column", gap: 3, alignItems: "flex-start" }}>
+                        <span className="badge badge-neutral">{e.vrsta_ugovora === "neodredjeno" ? "Neodređeno" : "Određeno"}</span>
+                        {e.dopunski_rad && (
+                          <span
+                            style={{ padding: "2px 8px", background: "#dbeafe", color: "#1e40af", border: "1px solid #93c5fd", borderRadius: 10, fontSize: 10.5, fontWeight: 700, letterSpacing: 0.3 }}
+                            title="Zaposlen po osnovu dopunskog rada (član 202 Zakona o radu)"
+                            data-testid={`badge-dopunski-${e.id}`}
+                          >
+                            DOPUNSKI RAD
+                          </span>
+                        )}
+                      </div>
                     </td>
                     {sub === "arhiva" && (
                       <td>
@@ -810,6 +822,27 @@ function EmployeeModal({ form, setForm, editing, objekti = [], onSave, onClose, 
             </div>
             <Field label="Telefon" value={form.telefon} onChange={(v) => u("telefon", v)} testid="emp-tel" />
             <Field label="Email" value={form.email} onChange={(v) => u("email", v)} testid="emp-email" />
+          </div>
+          
+          {/* Dopunski rad checkbox — spans full width */}
+          <div style={{ marginTop: 12, padding: "12px 14px", background: form.dopunski_rad ? "#eff6ff" : "#f8fafc", border: `1px solid ${form.dopunski_rad ? "#93c5fd" : "var(--border)"}`, borderRadius: 8, transition: "all 0.15s" }}>
+            <label style={{ display: "flex", alignItems: "flex-start", gap: 10, cursor: "pointer" }} data-testid="emp-dopunski-rad-label">
+              <input
+                type="checkbox"
+                checked={!!form.dopunski_rad}
+                onChange={(e) => u("dopunski_rad", e.target.checked)}
+                style={{ width: 18, height: 18, marginTop: 2, cursor: "pointer", accentColor: "#3b82f6" }}
+                data-testid="emp-dopunski-rad"
+              />
+              <div style={{ flex: 1 }}>
+                <div style={{ fontSize: 13.5, fontWeight: 600, color: form.dopunski_rad ? "#1e40af" : "var(--text-primary)" }}>
+                  Zaposlen po osnovu dopunskog rada
+                </div>
+                <div style={{ fontSize: 11.5, color: "var(--text-tertiary)", marginTop: 3, lineHeight: 1.4 }}>
+                  Označite ako je lice već zaposleno sa punim radnim vremenom kod drugog poslodavca i ovdje radi po ugovoru o dopunskom radu (član 202. Zakona o radu).
+                </div>
+              </div>
+            </label>
           </div>
           {error && <div style={{ marginTop: 14, padding: "10px 12px", background: "var(--danger-bg)", color: "var(--danger-text)", borderRadius: 6, fontSize: 13 }}>{error}</div>}
         </div>

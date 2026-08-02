@@ -155,6 +155,7 @@ class Employee(BaseModel):
     datum_kraja: str = ""
     datum_prestanka: str = ""  # datum prestanka radnog odnosa (odjava)
     vrsta_ugovora: str = "neodredjeno"  # odredjeno/neodredjeno
+    dopunski_rad: bool = False  # da li je zaposlen po osnovu dopunskog rada (kod drugog poslodavca)
     radno_vrijeme: str = "puno"  # puno/skraceno
     sati_sedmicno: int = 40  # 40 = puno radno vrijeme, npr. 20 = pola
     telefon: str = ""
@@ -182,6 +183,7 @@ class EmployeeCreate(BaseModel):
     datum_kraja: Optional[str] = ""
     datum_prestanka: Optional[str] = ""
     vrsta_ugovora: Optional[str] = "neodredjeno"
+    dopunski_rad: Optional[bool] = False
     radno_vrijeme: Optional[str] = "puno"
     sati_sedmicno: Optional[int] = 40
     telefon: Optional[str] = ""
