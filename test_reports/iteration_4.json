@@ -1,0 +1,20 @@
+{
+  "summary": "Verified the signature wrap fix on 'UGOVOR O DOPUNSKOM RADU.docx' for company 'DOO ADVANCED ACCOUNTING ULCINJ'. Generated the document via /api/documents/generate and asserted (1) paragraph 36 text equals 'Izvršilac posla\\tPoslodavac' with no \\u2006 chars, (2) paragraph 37 equals 'EGZON CEKA\\t<naziv>' with 'DOO ADVANCED ACCOUNTING ULCINJ' as a contiguous substring, (3) UNICO HIJA placeholder removed, (4) no DOO DOO regression, (5) both paragraphs 36 & 37 pPr contain <w:tabs><w:tab w:val='right' w:pos='9071'/></w:tabs>. Also re-ran the existing DOO DOO regression suite — all pass.",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {"ui_bugs": [], "integration_issues": [], "design_issues": []},
+  "test_report_links": [
+    "/app/backend/tests/test_dopunski_signature_wrap.py",
+    "/app/backend/tests/test_dopunski_doo.py",
+    "/app/test_reports/pytest/pytest_signature_wrap.xml"
+  ],
+  "action_items": [],
+  "critical_code_review_comments": [],
+  "updated_files": ["/app/backend/tests/test_dopunski_signature_wrap.py"],
+  "success_rate": {"backend": "100% (15/15)", "frontend": "n/a"},
+  "seed_data_creation": "None — used existing company d3fdf006-... and employee 63283aaa-...",
+  "should_call_test_agent_after_fix": false,
+  "should_main_agent_self_test": false,
+  "test_credentials": "getuard / Getuard1994.",
+  "context_for_next_testing_agent": "Signature wrap fix verified via python-docx paragraph inspection + XML pPr/tabs check. Paragraphs 36 & 37 in generated 'UGOVOR O DOPUNSKOM RADU.docx' now render as tab-separated 'Izvršilac posla\\tPoslodavac' and 'EGZON CEKA\\tDOO ADVANCED ACCOUNTING ULCINJ' with right-tab stop at 9071 twips. All 9 previous DOO DOO regression tests still pass. Note: template prepends 'DOO ' to naziv_skraceni value in DB — this is expected behaviour.",
+  "rca_of_the_issue": "Fixed by template edit: replaced \\u2006 SIX-PER-EM-SPACE runs in paragraphs 36 & 37 with a single \\u0009 TAB, and added <w:tabs><w:tab w:val='right' w:pos='9071'/></w:tabs> to pPr. Confirmed via generated docx inspection."
+}
