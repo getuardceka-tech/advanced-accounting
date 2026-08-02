@@ -206,6 +206,7 @@ export default function CompanyDetail() {
 
       {tab === "zaposleni" && (
         <ZaposleniTab
+          company={company}
           employees={employees}
           openEmpCreate={openEmpCreate}
           openEmpEdit={openEmpEdit}
@@ -299,7 +300,7 @@ export default function CompanyDetail() {
   );
 }
 
-function ZaposleniTab({ employees, openEmpCreate, openEmpEdit, removeEmp }) {
+function ZaposleniTab({ company, employees, openEmpCreate, openEmpEdit, removeEmp }) {
   const [sub, setSub] = useState("aktivni");
   const active = employees.filter((e) => e.status !== "arhiva");
   const arhiva = employees.filter((e) => e.status === "arhiva");
@@ -317,6 +318,124 @@ function ZaposleniTab({ employees, openEmpCreate, openEmpEdit, removeEmp }) {
       const dt = new Date(iso);
       return dt.toLocaleDateString("sr-Latn", { day: "2-digit", month: "2-digit", year: "numeric" });
     } catch { return iso; }
+  };
+  
+  const handlePrint = () => {
+    const now = new Date();
+    const dateStr = now.toLocaleDateString("sr-Latn", { day: "2-digit", month: "2-digit", year: "numeric" });
+    const timeStr = now.toLocaleTimeString("sr-Latn", { hour: "2-digit", minute: "2-digit" });
+    const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", "\"": "&quot;", "'": "&#39;" }[c]));
+    const subLabel = sub === "aktivni" ? "Aktivni zaposleni" : "Prestanak radnog odnosa / Istekli ugovori";
+    
+    const isArhiva = sub === "arhiva";
+    const headers = isArhiva
+      ? ["#", "Ime i prezime", "JMBG", "Objekat", "Pozicija", "Ugovor", "Datum početka", "Status / Datum"]
+      : ["#", "Ime i prezime", "JMBG", "Objekat", "Pozicija", "Ugovor", "Datum početka", "Radno vrijeme"];
+    
+    const rows = list.map((e, i) => {
+      const b = reasonBadge(e.arhiva_reason);
+      const lastCol = isArhiva
+        ? `<div style="font-weight:600;color:${b.color}">${esc(b.label)}</div>${e.arhiva_date ? `<div class="sub">${esc(fmtDate(e.arhiva_date))}</div>` : ""}`
+        : (e.radno_vrijeme === "puno" ? "Puno (40h)" : (e.sati_sedmicno ? `${e.sati_sedmicno}h/nedj.` : "Skraćeno"));
+      return `<tr>
+        <td class="c">${i + 1}</td>
+        <td>
+          <div class="nm">${esc(e.ime || "")} ${esc(e.prezime || "")}</div>
+          ${e.adresa ? `<div class="sub">${esc(e.adresa)}</div>` : ""}
+        </td>
+        <td class="mono">${esc(e.jmbg || "—")}</td>
+        <td>${e.objekat_naziv ? esc(e.objekat_naziv) : "<span class=\"muted\">—</span>"}</td>
+        <td>${esc(e.pozicija || "—")}</td>
+        <td>${e.vrsta_ugovora === "neodredjeno" ? "Neodređeno" : "Određeno"}</td>
+        <td class="mono">${esc(fmtDate(e.datum_pocetka))}</td>
+        <td>${lastCol}</td>
+      </tr>`;
+    }).join("");
+    
+    const html = `<!DOCTYPE html>
+<html lang="sr">
+<head>
+<meta charset="UTF-8">
+<title>Spisak zaposlenih - ${esc(company?.naziv_skraceni || company?.naziv || "")}</title>
+<style>
+  * { box-sizing: border-box; }
+  body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; padding: 32px 28px; color: #0f172a; margin: 0; font-size: 12px; }
+  .header { display: flex; justify-content: space-between; align-items: flex-start; padding-bottom: 16px; border-bottom: 2px solid #0f172a; margin-bottom: 18px; }
+  .brand { display: flex; align-items: center; gap: 12px; }
+  .logo { width: 44px; height: 44px; border-radius: 10px; background: #0f172a; color: white; display: flex; align-items: center; justify-content: center; font-weight: 800; font-size: 18px; letter-spacing: -0.5px; }
+  .brand-name { font-size: 15px; font-weight: 700; }
+  .brand-sub { font-size: 10.5px; color: #64748b; margin-top: 2px; text-transform: uppercase; letter-spacing: 0.5px; }
+  .meta { text-align: right; font-size: 11px; color: #64748b; }
+  .meta .date { font-weight: 600; color: #0f172a; font-size: 12px; }
+  h1 { font-size: 20px; margin: 0 0 4px; font-weight: 700; letter-spacing: -0.4px; }
+  .subtitle { font-size: 12px; color: #64748b; margin-bottom: 4px; }
+  .company-box { background: #f8fafc; border-left: 3px solid #0f172a; padding: 10px 14px; margin: 12px 0 16px; font-size: 12px; }
+  .company-box .cn { font-weight: 700; font-size: 13px; color: #0f172a; }
+  .company-box .cm { color: #64748b; margin-top: 2px; }
+  table { width: 100%; border-collapse: collapse; font-size: 11px; }
+  thead { background: #f1f5f9; }
+  th { padding: 8px 8px; text-align: left; font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.5px; color: #475569; border-bottom: 1.5px solid #cbd5e1; }
+  td { padding: 8px 8px; border-bottom: 1px solid #e2e8f0; vertical-align: top; }
+  td.c { text-align: center; }
+  td.mono { font-family: "JetBrains Mono", Consolas, monospace; font-size: 10.5px; }
+  .nm { font-weight: 600; color: #0f172a; }
+  .sub { font-size: 10px; color: #64748b; margin-top: 2px; }
+  .muted { color: #94a3b8; }
+  tbody tr:nth-child(even) { background: #fafbfc; }
+  .footer { margin-top: 20px; padding-top: 12px; border-top: 1px solid #e2e8f0; display: flex; justify-content: space-between; font-size: 10.5px; color: #64748b; }
+  .no-print { position: fixed; top: 12px; right: 12px; z-index: 999; }
+  .btn { padding: 8px 18px; font-size: 13px; font-weight: 600; border: none; border-radius: 6px; cursor: pointer; background: #0f172a; color: white; box-shadow: 0 2px 8px rgba(0,0,0,0.15); }
+  @media print {
+    body { padding: 16px 12px; }
+    .no-print { display: none !important; }
+    thead { display: table-header-group; }
+    tr { page-break-inside: avoid; }
+  }
+  @page { size: A4 landscape; margin: 14mm; }
+</style>
+</head>
+<body>
+  <div class="no-print"><button class="btn" onclick="window.print()">🖨️ Štampaj</button></div>
+  <div class="header">
+    <div class="brand">
+      <div class="logo">AA</div>
+      <div>
+        <div class="brand-name">Advanced Accounting</div>
+        <div class="brand-sub">Agencija za računovodstvo · Ulcinj</div>
+      </div>
+    </div>
+    <div class="meta">
+      <div class="date">${dateStr} · ${timeStr}</div>
+      <div>Ukupno: <strong>${list.length}</strong> ${list.length === 1 ? "zaposleni" : "zaposlenih"}</div>
+    </div>
+  </div>
+  <h1>Spisak zaposlenih</h1>
+  <div class="subtitle">${esc(subLabel)}</div>
+  <div class="company-box">
+    <div class="cn">${esc(company?.naziv || "—")}</div>
+    <div class="cm">PIB: ${esc(company?.pib || "—")}${company?.adresa ? ` · ${esc(company.adresa)}` : ""}${company?.grad ? `, ${esc(company.grad)}` : ""}</div>
+  </div>
+  <table>
+    <thead>
+      <tr>${headers.map((h, i) => `<th${i === 0 ? ' style="width:32px"' : ""}>${esc(h)}</th>`).join("")}</tr>
+    </thead>
+    <tbody>${rows || `<tr><td colspan="${headers.length}" style="text-align:center;padding:24px;color:#94a3b8">Nema zaposlenih za prikaz</td></tr>`}</tbody>
+  </table>
+  <div class="footer">
+    <div>Generisano iz Advanced Accounting sistema</div>
+    <div>${dateStr} · ${timeStr}</div>
+  </div>
+  <script>window.addEventListener('load', function() { setTimeout(function(){ window.print(); }, 300); });</script>
+</body>
+</html>`;
+    
+    const w = window.open("", "_blank", "width=1200,height=800");
+    if (!w) {
+      alert("Molimo omogućite pop-up prozore da biste odštampali spisak.");
+      return;
+    }
+    w.document.write(html);
+    w.document.close();
   };
   
   return (
@@ -352,11 +471,16 @@ function ZaposleniTab({ employees, openEmpCreate, openEmpEdit, removeEmp }) {
             <span style={{ marginLeft: 8, fontSize: 11.5 }}>· Zaposlenima kojima je istekao ugovor ili je prestao radni odnos.</span>
           )}
         </div>
-        {sub === "aktivni" && (
-          <button className="btn btn-primary" onClick={openEmpCreate} data-testid="add-employee-btn">
-            <Plus size={14} /> Dodaj zaposlenog
+        <div style={{ display: "flex", gap: 8 }}>
+          <button className="btn btn-secondary" onClick={handlePrint} data-testid="print-employees-btn" title="Štampaj / sačuvaj kao PDF" disabled={list.length === 0}>
+            <Printer size={14} /> Štampaj spisak
           </button>
-        )}
+          {sub === "aktivni" && (
+            <button className="btn btn-primary" onClick={openEmpCreate} data-testid="add-employee-btn">
+              <Plus size={14} /> Dodaj zaposlenog
+            </button>
+          )}
+        </div>
       </div>
       
       {list.length === 0 ? (
