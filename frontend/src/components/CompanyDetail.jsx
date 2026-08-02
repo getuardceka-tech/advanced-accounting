@@ -6,6 +6,151 @@ import {
 } from "@phosphor-icons/react";
 import api, { getToken, API } from "@/lib/api";
 
+const escapeHtmlDoc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", "\"": "&quot;", "'": "&#39;" }[c]));
+
+function printDocsReport(company, docs) {
+  if (!docs || docs.length === 0) return;
+  const now = new Date();
+  const dateStr = now.toLocaleDateString("sr-Latn", { day: "2-digit", month: "2-digit", year: "numeric" });
+  const timeStr = now.toLocaleTimeString("sr-Latn", { hour: "2-digit", minute: "2-digit" });
+  const esc = escapeHtmlDoc;
+  
+  // Sortiraj po datumu opadajuće (najnoviji prvi)
+  const sorted = [...docs].sort((a, b) => (new Date(b.created_at)) - (new Date(a.created_at)));
+  
+  // Grupiši po mjesecu
+  const groups = {};
+  const monthNames = ["Januar","Februar","Mart","April","Maj","Jun","Jul","Avgust","Septembar","Oktobar","Novembar","Decembar"];
+  sorted.forEach((d) => {
+    const dt = new Date(d.created_at);
+    const key = `${dt.getFullYear()}-${String(dt.getMonth() + 1).padStart(2, "0")}`;
+    const label = `${monthNames[dt.getMonth()]} ${dt.getFullYear()}`;
+    if (!groups[key]) groups[key] = { label, items: [] };
+    groups[key].items.push(d);
+  });
+  const groupKeys = Object.keys(groups).sort().reverse();
+  
+  const cleanTemplate = (t) => (t || "").replace(/\.[^.]+$/, "");
+  
+  const rowsHtml = groupKeys.map((k) => {
+    const g = groups[k];
+    const rows = g.items.map((d, i) => {
+      const dt = new Date(d.created_at);
+      const dateFmt = dt.toLocaleDateString("sr-Latn", { day: "2-digit", month: "2-digit", year: "numeric" });
+      const timeFmt = dt.toLocaleTimeString("sr-Latn", { hour: "2-digit", minute: "2-digit" });
+      return `<tr>
+        <td class="c mono">${i + 1}</td>
+        <td class="mono">${esc(dateFmt)} <span class="sub">${esc(timeFmt)}</span></td>
+        <td><div class="nm">${esc(cleanTemplate(d.template))}</div></td>
+        <td>${esc(d.employee_naziv || "—")}</td>
+        <td class="mono sub">${esc(d.filename || "")}</td>
+      </tr>`;
+    }).join("");
+    return `<tr class="group"><td colspan="5">📅 ${esc(g.label)} · ${g.items.length} ${g.items.length === 1 ? "dokument" : "dokumenata"}</td></tr>${rows}`;
+  }).join("");
+  
+  const html = `<!DOCTYPE html>
+<html lang="sr">
+<head>
+<meta charset="UTF-8">
+<title>Izvještaj generisanih dokumenata - ${esc(company?.naziv_skraceni || company?.naziv || "")}</title>
+<style>
+  * { box-sizing: border-box; }
+  body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; padding: 32px 28px; color: #0f172a; margin: 0; font-size: 12px; }
+  .header { display: flex; justify-content: space-between; align-items: flex-start; padding-bottom: 16px; border-bottom: 2px solid #0f172a; margin-bottom: 18px; }
+  .brand { display: flex; align-items: center; gap: 12px; }
+  .logo { width: 44px; height: 44px; border-radius: 10px; background: #0f172a; color: white; display: flex; align-items: center; justify-content: center; font-weight: 800; font-size: 18px; letter-spacing: -0.5px; }
+  .brand-name { font-size: 15px; font-weight: 700; }
+  .brand-sub { font-size: 10.5px; color: #64748b; margin-top: 2px; text-transform: uppercase; letter-spacing: 0.5px; }
+  .meta { text-align: right; font-size: 11px; color: #64748b; }
+  .meta .date { font-weight: 600; color: #0f172a; font-size: 12px; }
+  h1 { font-size: 20px; margin: 0 0 4px; font-weight: 700; letter-spacing: -0.4px; }
+  .subtitle { font-size: 12px; color: #64748b; margin-bottom: 4px; }
+  .company-box { background: #f8fafc; border-left: 3px solid #0f172a; padding: 10px 14px; margin: 12px 0 16px; font-size: 12px; }
+  .company-box .cn { font-weight: 700; font-size: 13px; color: #0f172a; }
+  .company-box .cm { color: #64748b; margin-top: 2px; }
+  table { width: 100%; border-collapse: collapse; font-size: 11px; }
+  thead { background: #f1f5f9; }
+  th { padding: 8px 8px; text-align: left; font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.5px; color: #475569; border-bottom: 1.5px solid #cbd5e1; }
+  td { padding: 7px 8px; border-bottom: 1px solid #e2e8f0; vertical-align: top; }
+  td.c { text-align: center; width: 32px; }
+  td.mono { font-family: "JetBrains Mono", Consolas, monospace; font-size: 10.5px; }
+  .nm { font-weight: 600; color: #0f172a; }
+  .sub { color: #94a3b8; font-size: 10px; }
+  tr.group td { background: #eff6ff; color: #1e40af; font-weight: 700; font-size: 11.5px; padding: 9px 10px; border-bottom: 1.5px solid #bfdbfe; border-top: 1.5px solid #bfdbfe; letter-spacing: 0.2px; }
+  .footer { margin-top: 20px; padding-top: 12px; border-top: 1px solid #e2e8f0; display: flex; justify-content: space-between; font-size: 10.5px; color: #64748b; }
+  .no-print { position: fixed; top: 12px; right: 12px; z-index: 999; }
+  .btn { padding: 8px 18px; font-size: 13px; font-weight: 600; border: none; border-radius: 6px; cursor: pointer; background: #0f172a; color: white; box-shadow: 0 2px 8px rgba(0,0,0,0.15); }
+  .stats { display: flex; gap: 12px; margin: 14px 0 18px; }
+  .stat { flex: 1; padding: 10px 14px; background: #f8fafc; border-radius: 8px; border: 1px solid #e2e8f0; }
+  .stat-label { font-size: 10px; color: #64748b; text-transform: uppercase; letter-spacing: 0.5px; font-weight: 600; }
+  .stat-value { font-size: 18px; font-weight: 700; color: #0f172a; margin-top: 4px; }
+  @media print {
+    body { padding: 16px 12px; }
+    .no-print { display: none !important; }
+    thead { display: table-header-group; }
+    tr.group { page-break-before: auto; }
+    tr { page-break-inside: avoid; }
+  }
+  @page { size: A4 portrait; margin: 14mm; }
+</style>
+</head>
+<body>
+  <div class="no-print"><button class="btn" onclick="window.print()">🖨️ Štampaj</button></div>
+  <div class="header">
+    <div class="brand">
+      <div class="logo">AA</div>
+      <div>
+        <div class="brand-name">Advanced Accounting</div>
+        <div class="brand-sub">Agencija za računovodstvo · Ulcinj</div>
+      </div>
+    </div>
+    <div class="meta">
+      <div class="date">${dateStr} · ${timeStr}</div>
+      <div>Period: <strong>svi dokumenti</strong></div>
+    </div>
+  </div>
+  <h1>Izvještaj generisanih dokumenata</h1>
+  <div class="subtitle">Hronološki pregled svih ugovora, odluka i akata generisanih za klijenta</div>
+  <div class="company-box">
+    <div class="cn">${esc(company?.naziv || "—")}</div>
+    <div class="cm">PIB: ${esc(company?.pib || "—")}${company?.adresa ? ` · ${esc(company.adresa)}` : ""}${company?.grad ? `, ${esc(company.grad)}` : ""}</div>
+  </div>
+  <div class="stats">
+    <div class="stat"><div class="stat-label">Ukupno dokumenata</div><div class="stat-value">${docs.length}</div></div>
+    <div class="stat"><div class="stat-label">Mjeseci sa aktivnošću</div><div class="stat-value">${groupKeys.length}</div></div>
+    <div class="stat"><div class="stat-label">Prvi dokument</div><div class="stat-value" style="font-size:13px;font-weight:600">${esc(new Date(sorted[sorted.length-1].created_at).toLocaleDateString("sr-Latn", { day: "2-digit", month: "2-digit", year: "numeric" }))}</div></div>
+    <div class="stat"><div class="stat-label">Posljednji dokument</div><div class="stat-value" style="font-size:13px;font-weight:600">${esc(new Date(sorted[0].created_at).toLocaleDateString("sr-Latn", { day: "2-digit", month: "2-digit", year: "numeric" }))}</div></div>
+  </div>
+  <table>
+    <thead>
+      <tr>
+        <th class="c">#</th>
+        <th style="width:110px">Datum / Vrijeme</th>
+        <th>Vrsta dokumenta</th>
+        <th style="width:180px">Zaposleni / lice</th>
+        <th style="width:180px">Fajl</th>
+      </tr>
+    </thead>
+    <tbody>${rowsHtml}</tbody>
+  </table>
+  <div class="footer">
+    <div>Generisano iz Advanced Accounting sistema</div>
+    <div>${dateStr} · ${timeStr}</div>
+  </div>
+  <script>window.addEventListener('load', function() { setTimeout(function(){ window.print(); }, 300); });</script>
+</body>
+</html>`;
+  
+  const w = window.open("", "_blank", "width=1000,height=800");
+  if (!w) {
+    alert("Molimo omogućite pop-up prozore da biste odštampali izvještaj.");
+    return;
+  }
+  w.document.write(html);
+  w.document.close();
+}
+
 const empEmpty = {
   objekat_id: "",
   ime: "", prezime: "", jmbg: "", licna_karta: "", adresa: "", grad: "",
@@ -220,9 +365,20 @@ export default function CompanyDetail() {
             <div style={{ fontSize: 13, color: "var(--text-tertiary)" }}>
               {docs.length} dokumenata generisano za ovu firmu
             </div>
-            <button className="btn btn-primary" onClick={() => navigate(`/dokumenti?company=${id}`)} data-testid="generate-doc-btn">
-              <FileText size={14} /> Generiši dokument
-            </button>
+            <div style={{ display: "flex", gap: 8 }}>
+              <button
+                className="btn btn-secondary"
+                onClick={() => printDocsReport(company, docs)}
+                data-testid="print-docs-btn"
+                title="Štampaj izvještaj svih dokumenata"
+                disabled={docs.length === 0}
+              >
+                <Printer size={14} /> Štampaj izvještaj
+              </button>
+              <button className="btn btn-primary" onClick={() => navigate(`/dokumenti?company=${id}`)} data-testid="generate-doc-btn">
+                <FileText size={14} /> Generiši dokument
+              </button>
+            </div>
           </div>
 
           {docs.length === 0 ? (
