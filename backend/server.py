@@ -485,6 +485,20 @@ async def update_agency(data: Agency, username: str = Depends(get_current_user))
 
 # ============== IRMS LOOKUP ==============
 
+async def _lookup_via_playwright(pib: str, result: dict) -> dict:
+    """Fallback: IRMS zahtijeva reCAPTCHA validaciju za direktne pozive.
+    Google reCAPTCHA Enterprise blokira automatske browsere pa je auto-lookup trenutno nedostupan.
+    Vraćamo jasnu poruku sa uputstvom.
+    """
+    result["success"] = False
+    result["message"] = (
+        "IRMS portal je uveo reCAPTCHA zaštitu i trenutno ne dozvoljava automatski dohvat podataka. "
+        "Kliknite na IRMS dugme desno da otvorite portal ručno."
+    )
+    result["requires_manual"] = True
+    return result
+
+
 @api_router.get("/companies/lookup-pib")
 async def lookup_pib(pib: str, username: str = Depends(get_current_user)):
     """
@@ -518,6 +532,12 @@ async def lookup_pib(pib: str, username: str = Depends(get_current_user)):
         # 1) Pretraga po PIB-u
         search_url = f"https://irms.tax.gov.me/public/api/business-entities?page=1&perPage=5&identificationNumber={pib}"
         search_resp = requests.get(search_url, headers=headers, timeout=10)
+        
+        if search_resp.status_code == 400 and "recaptcha" in search_resp.text.lower():
+            # IRMS traži reCAPTCHA — fallback na Playwright
+            logging.info(f"IRMS reCAPTCHA required, trying Playwright fallback for PIB {pib}")
+            return await _lookup_via_playwright(pib, result)
+        
         if search_resp.status_code != 200:
             result["message"] = f"IRMS portal vratio status {search_resp.status_code}"
             return result

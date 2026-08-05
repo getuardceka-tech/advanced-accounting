@@ -225,7 +225,23 @@ export default function Companies() {
       setModalOpen(false);
       load();
     } catch (e) {
-      setError(e.response?.data?.detail || "Greška pri snimanju");
+      const detail = e.response?.data?.detail || "Greška pri snimanju";
+      // Ako firma već postoji — ponudi da otvori postojeću
+      if (typeof detail === "string" && detail.toLowerCase().includes("već postoji")) {
+        try {
+          const existing = (await api.get(`/companies?search=${encodeURIComponent(form.pib)}`)).data;
+          if (existing && existing.length > 0) {
+            setError(
+              `⚠ Firma sa PIB-om ${form.pib} već postoji u bazi: "${existing[0].naziv}". Zatvori ovaj prozor i uredi postojeću firmu.`
+            );
+            setSaving(false);
+            return;
+          }
+        } catch {
+          /* ignore */
+        }
+      }
+      setError(detail);
     } finally {
       setSaving(false);
     }
@@ -283,7 +299,7 @@ export default function Companies() {
       } else {
         setLookupMsg(
           r.data.message ||
-            "IRMS trenutno ne vraća automatske podatke. Otvori IRMS portal ručno."
+            "⚠ IRMS portal je uveo reCAPTCHA zaštitu — automatski dohvat nije moguć. Popuni polja ručno ili otvori IRMS portal (dugme desno)."
         );
       }
     } catch (e) {

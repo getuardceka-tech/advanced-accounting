@@ -1,0 +1,35 @@
+{
+  "summary": "Verified 'Nova firma' create-flow bug fixes (IRMS reCAPTCHA graceful UX + duplicate PIB friendly error + non-disabled form fields). Backend: 4/4 pytest tests pass. Frontend: full Playwright flow passes all 7 assertions incl. friendly error mentioning existing firm name, editable fields, and successful unique-PIB creation with cleanup.",
+  "backend_issues": {
+    "critical": [],
+    "minor": []
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [
+      {
+        "screen": "Nova firma modal - duplicate error banner",
+        "issues": ["Cosmetic: friendly error wraps the existing firm name in extra quotes, so when the DB name itself starts with a quote it renders as `\"\"TAMIŠ\" D.O.O. ULCINJ\"` (double leading quote). Consider stripping surrounding quotes from the DB naziv or using a stylized chip instead of quoting."]
+      }
+    ]
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_companies_lookup.py",
+    "/app/test_reports/pytest/pytest_companies_lookup.xml"
+  ],
+  "action_items": [
+    "OPTIONAL: strip leading/trailing quotes from firm naziv before embedding in duplicate-PIB error banner to avoid double-quote artifact when name already contains quotes (e.g. 'TAMIŠ')."
+  ],
+  "critical_code_review_comments": [
+    "server.py L541-543: when IRMS returns a non-recaptcha non-200 status the message is 'IRMS portal vratio status {code}' — consider adding a hint to fill fields manually here too, mirroring the reCAPTCHA branch."
+  ],
+  "updated_files": ["/app/backend/tests/test_companies_lookup.py"],
+  "success_rate": {"backend": "100% (4/4)", "frontend": "100% (7/7 flow assertions)"},
+  "seed_data_creation": "Created & cleaned up TEST FIRMA UNIQUE DOO (PIB 99999123) and TEST FIRMA XYZ DOO (PIB 88888777) via API + UI. Nothing left in DB.",
+  "should_call_test_agent_after_fix": false,
+  "should_main_agent_self_test": true,
+  "test_credentials": "getuard / Getuard1994. (from /app/memory/test_credentials.md)",
+  "context_for_next_testing_agent": "test_companies_lookup.py covers: POST /api/companies with new PIB (99999123) → 200 + persistence GET; POST with existing PIB (02268400) → 400 with 'već postoji'; GET /api/companies/lookup-pib?pib=02268400 → 200 with success=false and message containing 'recaptcha/irms/portal/ručno' (fast, <15s); GET lookup-pib?pib=123 → 400 mentioning digit minimum. Frontend flow verified via Playwright using data-testids form-pib, form-naziv, form-adresa, form-grad, lookup-msg, form-error, save-company-btn, add-company-btn, login-username-input/login-password-input/login-submit-button. Auto-lookup debounce is 700ms.",
+  "rca_of_the_issue": "IRMS portal (Poreska uprava CG) enabled reCAPTCHA v3 Enterprise, blocking headless/direct GET calls. Backend now short-circuits Playwright fallback (which required a missing chromium binary) and returns success=false with a clear message. Frontend save() detects 'već postoji' via case-insensitive substring match and rewrites the error to include the existing firm's naziv. Modal form fields are never disabled — only the lookup button reflects lookupBusy state — so users can always type manually while auto-lookup runs."
+}
