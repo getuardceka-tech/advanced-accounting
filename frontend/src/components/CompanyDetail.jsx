@@ -759,6 +759,63 @@ const InfoBlock = ({ title, items }) => (
 
 function EmployeeModal({ form, setForm, editing, objekti = [], onSave, onClose, saving, error }) {
   const u = (k, v) => setForm({ ...form, [k]: v });
+  const [historyHit, setHistoryHit] = useState(null); // {count, ime, prezime, latest_company, latest_pozicija, ...}
+  const [historyLoading, setHistoryLoading] = useState(false);
+  
+  // Debounced JMBG lookup — samo za nove unose (ne za edit)
+  useEffect(() => {
+    if (editing) return;
+    const j = (form.jmbg || "").trim();
+    if (j.length < 8) { setHistoryHit(null); return; }
+    setHistoryLoading(true);
+    const t = setTimeout(() => {
+      api.get(`/employees/history-by-jmbg`, { params: { jmbg: j } })
+        .then((r) => {
+          const d = r.data || {};
+          if (d.count > 0 && d.history && d.history.length > 0) {
+            const latest = d.history[0];
+            setHistoryHit({
+              count: d.count,
+              ime: d.ime,
+              prezime: d.prezime,
+              adresa: latest.adresa,
+              grad: latest.grad,
+              telefon: latest.telefon,
+              email: latest.email,
+              pozicija: latest.pozicija,
+              strucna_sprema: latest.strucna_sprema,
+              licna_karta: latest.licna_karta,
+              pasos: latest.pasos,
+              latest_company: latest.company_naziv_skraceni || latest.company_naziv,
+              latest_status: latest.status,
+            });
+          } else {
+            setHistoryHit(null);
+          }
+        })
+        .catch(() => setHistoryHit(null))
+        .finally(() => setHistoryLoading(false));
+    }, 600);
+    return () => { clearTimeout(t); setHistoryLoading(false); };
+  }, [form.jmbg, editing]);
+  
+  const applyHistoryData = () => {
+    if (!historyHit) return;
+    setForm({
+      ...form,
+      ime: form.ime || historyHit.ime || "",
+      prezime: form.prezime || historyHit.prezime || "",
+      adresa: form.adresa || historyHit.adresa || "",
+      grad: form.grad || historyHit.grad || "",
+      telefon: form.telefon || historyHit.telefon || "",
+      email: form.email || historyHit.email || "",
+      pozicija: form.pozicija || historyHit.pozicija || "",
+      strucna_sprema: form.strucna_sprema || historyHit.strucna_sprema || "",
+      licna_karta: form.licna_karta || historyHit.licna_karta || "",
+      pasos: form.pasos || historyHit.pasos || "",
+    });
+    window.dispatchEvent(new CustomEvent("toast", { detail: { type: "success", msg: "✓ Podaci popunjeni iz istorije zapošljavanja." } }));
+  };
 
   return (
     <div className="modal-backdrop" onClick={onClose}>
@@ -773,6 +830,35 @@ function EmployeeModal({ form, setForm, editing, objekti = [], onSave, onClose, 
           <div style={{ padding: "10px 12px", background: "#f8fafc", borderRadius: 8, marginBottom: 16, fontSize: 12.5, color: "var(--text-secondary)", borderLeft: "3px solid #2563eb" }}>
             💡 <strong>Pozicija (radno mjesto)</strong> se automatski povezuje sa ugovorima o radu, odlukama o pauzi, godišnjem odmoru i drugim dokumentima — popunite je da izbjegnete ručno unošenje.
           </div>
+          
+          {/* History preview banner */}
+          {historyHit && !editing && (
+            <div style={{ marginBottom: 14, padding: "12px 14px", background: "#eff6ff", border: "1px solid #93c5fd", borderRadius: 8, display: "flex", alignItems: "center", gap: 12 }} data-testid="history-hint-banner">
+              <div style={{ fontSize: 20 }}>👤</div>
+              <div style={{ flex: 1, fontSize: 12.5 }}>
+                <div style={{ fontWeight: 700, color: "#1e40af", marginBottom: 3 }}>
+                  Ovaj JMBG već postoji u sistemu — {historyHit.ime} {historyHit.prezime}
+                </div>
+                <div style={{ color: "#3730a3" }}>
+                  <strong>{historyHit.count}</strong> {historyHit.count === 1 ? "zapošljavanje" : "zapošljavanja"} u istoriji · Posljednje: <strong>{historyHit.latest_company}</strong>
+                  {historyHit.latest_status === "aktivan" && <span style={{ marginLeft: 6, padding: "1px 6px", background: "#dcfce7", color: "#166534", borderRadius: 8, fontSize: 10, fontWeight: 700 }}>AKTIVAN</span>}
+                </div>
+              </div>
+              <button
+                onClick={applyHistoryData}
+                className="btn btn-primary"
+                data-testid="apply-history-btn"
+                style={{ padding: "7px 14px", fontSize: 12.5, whiteSpace: "nowrap" }}
+              >
+                Popuni podatke
+              </button>
+            </div>
+          )}
+          {historyLoading && !editing && (form.jmbg || "").trim().length >= 8 && !historyHit && (
+            <div style={{ marginBottom: 12, fontSize: 11.5, color: "var(--text-tertiary)", padding: "0 4px" }}>
+              🔍 Provjera JMBG-a u istoriji...
+            </div>
+          )}
           {objekti.length > 0 && (
             <div className="field-group" style={{ marginBottom: 14 }}>
               <label className="field-label">Objekat (poslovnica)</label>

@@ -575,6 +575,8 @@ function HistoryModal({ jmbg, onClose }) {
 function PersonModal({ form, setForm, editing, companies, onSave, onClose, onSaveAndPrint, onSaveAndPrintPonuda, saving, error }) {
   const u = (k, v) => setForm({ ...form, [k]: v });
   const [objekti, setObjekti] = useState([]);
+  const [historyHit, setHistoryHit] = useState(null);
+  const [historyLoading, setHistoryLoading] = useState(false);
   
   // Učitaj objekte za izabranu firmu
   useEffect(() => {
@@ -583,6 +585,53 @@ function PersonModal({ form, setForm, editing, companies, onSave, onClose, onSav
       .then((r) => setObjekti((r.data || []).filter((o) => o.saved)))
       .catch(() => setObjekti([]));
   }, [form.company_id]);
+  
+  // JMBG history lookup (samo za nove zapise)
+  useEffect(() => {
+    if (editing) return;
+    const j = (form.jmbg || "").trim();
+    if (j.length < 8) { setHistoryHit(null); return; }
+    setHistoryLoading(true);
+    const t = setTimeout(() => {
+      api.get(`/employees/history-by-jmbg`, { params: { jmbg: j } })
+        .then((r) => {
+          const d = r.data || {};
+          if (d.count > 0 && d.history && d.history.length > 0) {
+            const latest = d.history[0];
+            setHistoryHit({
+              count: d.count, ime: d.ime, prezime: d.prezime,
+              adresa: latest.adresa, grad: latest.grad,
+              telefon: latest.telefon, email: latest.email,
+              pozicija: latest.pozicija, strucna_sprema: latest.strucna_sprema,
+              licna_karta: latest.licna_karta, pasos: latest.pasos,
+              latest_company: latest.company_naziv_skraceni || latest.company_naziv,
+              latest_status: latest.status,
+            });
+          } else setHistoryHit(null);
+        })
+        .catch(() => setHistoryHit(null))
+        .finally(() => setHistoryLoading(false));
+    }, 600);
+    return () => { clearTimeout(t); setHistoryLoading(false); };
+  }, [form.jmbg, editing]);
+  
+  const applyHistoryData = () => {
+    if (!historyHit) return;
+    setForm({
+      ...form,
+      ime: form.ime || historyHit.ime || "",
+      prezime: form.prezime || historyHit.prezime || "",
+      adresa: form.adresa || historyHit.adresa || "",
+      grad: form.grad || historyHit.grad || "",
+      telefon: form.telefon || historyHit.telefon || "",
+      email: form.email || historyHit.email || "",
+      pozicija: form.pozicija || historyHit.pozicija || "",
+      strucna_sprema: form.strucna_sprema || historyHit.strucna_sprema || "",
+      licna_karta: form.licna_karta || historyHit.licna_karta || "",
+      pasos: form.pasos || historyHit.pasos || "",
+    });
+    window.dispatchEvent(new CustomEvent("toast", { detail: { type: "success", msg: "✓ Podaci popunjeni iz istorije zapošljavanja." } }));
+  };
   
   return (
     <div className="modal-backdrop" onClick={onClose} data-testid="person-modal">
@@ -595,6 +644,29 @@ function PersonModal({ form, setForm, editing, companies, onSave, onClose, onSav
           <div style={{ padding: "10px 12px", background: "#f8fafc", borderRadius: 8, marginBottom: 16, fontSize: 12.5, color: "var(--text-secondary)", borderLeft: "3px solid #2563eb" }}>
             💡 <strong>Radno mjesto (pozicija)</strong> se automatski povezuje sa ugovorima, odlukama o pauzi, godišnjem odmoru i ostalim dokumentima — popunite je da izbjegnete ručno unošenje.
           </div>
+          
+          {historyHit && !editing && (
+            <div style={{ marginBottom: 14, padding: "12px 14px", background: "#eff6ff", border: "1px solid #93c5fd", borderRadius: 8, display: "flex", alignItems: "center", gap: 12 }} data-testid="person-history-hint">
+              <div style={{ fontSize: 20 }}>👤</div>
+              <div style={{ flex: 1, fontSize: 12.5 }}>
+                <div style={{ fontWeight: 700, color: "#1e40af", marginBottom: 3 }}>
+                  Ovaj JMBG već postoji — {historyHit.ime} {historyHit.prezime}
+                </div>
+                <div style={{ color: "#3730a3" }}>
+                  <strong>{historyHit.count}</strong> {historyHit.count === 1 ? "zapošljavanje" : "zapošljavanja"} · Posljednje: <strong>{historyHit.latest_company}</strong>
+                  {historyHit.latest_status === "aktivan" && <span style={{ marginLeft: 6, padding: "1px 6px", background: "#dcfce7", color: "#166534", borderRadius: 8, fontSize: 10, fontWeight: 700 }}>AKTIVAN</span>}
+                </div>
+              </div>
+              <button onClick={applyHistoryData} className="btn btn-primary" data-testid="person-apply-history-btn" style={{ padding: "7px 14px", fontSize: 12.5, whiteSpace: "nowrap" }}>
+                Popuni podatke
+              </button>
+            </div>
+          )}
+          {historyLoading && !editing && (form.jmbg || "").trim().length >= 8 && !historyHit && (
+            <div style={{ marginBottom: 12, fontSize: 11.5, color: "var(--text-tertiary)", padding: "0 4px" }}>
+              🔍 Provjera JMBG-a u istoriji...
+            </div>
+          )}
           <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 14 }}>
             <div className="field-group" style={{ gridColumn: "1/-1" }}>
               <label className="field-label">Firma * (gdje je lice zaposleno)</label>
@@ -665,10 +737,10 @@ function PersonModal({ form, setForm, editing, companies, onSave, onClose, onSav
               </>
             )}
             
-            <Field label="Adresa stanovanja" value={form.adresa} onChange={(v) => u("adresa", v)} />
-            <Field label="Grad" value={form.grad} onChange={(v) => u("grad", v)} />
+            <Field label="Adresa stanovanja" value={form.adresa} onChange={(v) => u("adresa", v)} testid="person-adresa" />
+            <Field label="Grad" value={form.grad} onChange={(v) => u("grad", v)} testid="person-grad" />
             <Field label="Radno mjesto (pozicija) ⭐" value={form.pozicija} onChange={(v) => u("pozicija", v)} testid="person-pozicija" />
-            <Field label="Stručna sprema" value={form.strucna_sprema} onChange={(v) => u("strucna_sprema", v)} />
+            <Field label="Stručna sprema" value={form.strucna_sprema} onChange={(v) => u("strucna_sprema", v)} testid="person-strucna-sprema" />
             <Field label="Bruto plata (€)" value={form.plata_bruto} onChange={(v) => u("plata_bruto", v)} type="number" />
             <Field label="Neto plata (€)" value={form.plata_neto} onChange={(v) => u("plata_neto", v)} type="number" />
             <Field label="Datum početka rada" value={form.datum_pocetka} onChange={(v) => u("datum_pocetka", v)} type="date" />

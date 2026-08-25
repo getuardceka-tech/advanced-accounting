@@ -1,0 +1,27 @@
+{
+  "summary": "Frontend-only testing of the new JMBG-history hint banner in both PersonModal (/fizicka-lica) and EmployeeModal (company detail > Zaposleni). All 6 requested scenarios PASSED. Login as getuard works. Existing JMBG 2301996220017 triggers banner in both modals with correct 'EGZON CEKA' + '2 zapošljavanja' text and latest company (PR. ARSIM CEKOVIĆ STR REA) + AKTIVAN badge. 'Popuni podatke' correctly auto-fills ime/prezime/adresa/grad/pozicija/strucna_sprema and shows a success toast. Banner correctly hidden for unknown JMBG (99999999999999), short JMBG (<8 chars) and in EDIT mode (verified both for a random person and specifically for the EGZON CEKA record). Backend GET /api/employees/history-by-jmbg?jmbg=2301996220017 verified via curl: count=2, history array with 2 records (auth required, returns 401 without token - correct). No DB pollution: all modals cancelled, person count remained 237.",
+  "backend_issues": { "critical": [], "minor": [] },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [
+      {"screen": "PersonModal / EmployeeModal", "issues": ["Date inputs ('Datum početka rada', 'Datum prestanka rada') use the native browser date picker showing US mm/dd/yyyy format instead of a shadcn/locale-aware date component - inconsistent with the Montenegrin dd.mm.yyyy convention used elsewhere. Pre-existing, not part of this change."]},
+      {"screen": "Persons list (console)", "issues": ["React hydration warning: '<span> cannot be a child of <option>' from Persons.jsx line ~284 (company filter <select> option contains a dynamic span wrapper). Console-only, no functional impact."]}
+    ]
+  },
+  "test_report_links": [],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "applyHistoryData uses `form.x || historyHit.x` so it never overwrites already-typed values - good, non-destructive. Behavior confirmed in UI.",
+    "The debounce cleanup sets historyLoading=false on every keystroke, so the '🔍 Provjera JMBG-a...' loading hint flickers; consider a request-id guard. Cosmetic only.",
+    "Persons.jsx is 1134 lines and CompanyDetail.jsx >1100 lines - both exceed the 700-line guideline; the duplicated JMBG-history hook/banner/apply logic in the two files is a DRY violation (~60 lines duplicated) and should be extracted into a shared hook (e.g. useJmbgHistory) + <JmbgHistoryBanner/> component."
+  ],
+  "updated_files": ["/app/frontend/src/components/Persons.jsx"],
+  "success_rate": { "backend": "100%", "frontend": "100%" },
+  "seed_data_creation": "None - no records created; all modals cancelled without saving.",
+  "should_call_test_agent_after_fix": false,
+  "should_main_agent_self_test": false,
+  "test_credentials": "getuard / Getuard1994.",
+  "context_for_next_testing_agent": "JMBG history hint feature is fully working in both PersonModal (testids: person-history-hint, person-apply-history-btn, person-jmbg) and EmployeeModal (history-hint-banner, apply-history-btn, emp-jmbg). I added missing data-testids in Persons.jsx PersonModal: person-adresa, person-grad, person-strucna-sprema. Test JMBG with history: 2301996220017 (EGZON CEKA, 2 employments, adresa/grad ULCINJ, pozicija PRODAVAC, SSS). Company used for EmployeeModal test: /firme/67a54dbd-c655-4ecf-98db-f298b03d3b0d.",
+  "rca_of_the_issue": "N/A - no defects found in the tested feature."
+}
