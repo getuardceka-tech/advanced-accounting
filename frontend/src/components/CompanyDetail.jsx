@@ -668,9 +668,10 @@ function ZaposleniTab({ company, employees, openEmpCreate, openEmpEdit, removeEm
                 <th>JMBG</th>
                 <th>Objekat</th>
                 <th>Pozicija</th>
-                <th>Plata (€)</th>
+                <th>Datum prijave</th>
+                {sub === "arhiva" && <th>Datum odjave</th>}
                 <th>Ugovor</th>
-                {sub === "arhiva" && <th>Status / Datum</th>}
+                {sub === "arhiva" && <th>Status</th>}
                 <th style={{ width: 80 }}></th>
               </tr>
             </thead>
@@ -691,34 +692,30 @@ function ZaposleniTab({ company, employees, openEmpCreate, openEmpEdit, removeEm
                         </span>
                       ) : <span style={{ color: "var(--text-tertiary)" }}>—</span>}
                     </td>
-                    <td style={{ fontSize: 12.5 }}>{e.pozicija || "—"}</td>
-                    <td style={{ fontFamily: "JetBrains Mono, monospace", fontSize: 12.5 }}>
-                      {e.plata_bruto ? `${e.plata_bruto.toFixed(2)}` : "—"}
-                    </td>
-                    <td>
+                    <td style={{ fontSize: 12.5 }}>
                       <div style={{ display: "flex", flexDirection: "column", gap: 3, alignItems: "flex-start" }}>
-                        <span className="badge badge-neutral">{e.vrsta_ugovora === "neodredjeno" ? "Neodređeno" : "Određeno"}</span>
+                        <span>{e.pozicija || "—"}</span>
                         {e.dopunski_rad && (
-                          <span
-                            style={{ padding: "2px 8px", background: "#dbeafe", color: "#1e40af", border: "1px solid #93c5fd", borderRadius: 10, fontSize: 10.5, fontWeight: 700, letterSpacing: 0.3 }}
-                            title="Zaposlen po osnovu dopunskog rada (član 202 Zakona o radu)"
-                            data-testid={`badge-dopunski-${e.id}`}
-                          >
+                          <span style={{ padding: "2px 8px", background: "#dbeafe", color: "#1e40af", border: "1px solid #93c5fd", borderRadius: 10, fontSize: 10.5, fontWeight: 700, letterSpacing: 0.3 }} title="Dopunski rad">
                             DOPUNSKI RAD
                           </span>
                         )}
                       </div>
                     </td>
+                    <td style={{ fontFamily: "JetBrains Mono, monospace", fontSize: 12 }}>{fmtDate(e.datum_pocetka)}</td>
+                    {sub === "arhiva" && (
+                      <td style={{ fontFamily: "JetBrains Mono, monospace", fontSize: 12, color: "#991b1b", fontWeight: 500 }}>
+                        {fmtDate(e.arhiva_date)}
+                      </td>
+                    )}
+                    <td>
+                      <span className="badge badge-neutral">{e.vrsta_ugovora === "neodredjeno" ? "Neodređeno" : "Određeno"}</span>
+                    </td>
                     {sub === "arhiva" && (
                       <td>
-                        <div style={{ display: "flex", flexDirection: "column", gap: 3 }}>
-                          <span style={{ display: "inline-block", padding: "2px 8px", background: b.bg, color: b.color, borderRadius: 10, fontSize: 11, fontWeight: 600, width: "fit-content" }}>
-                            {b.label}
-                          </span>
-                          {e.arhiva_date && (
-                            <span style={{ fontSize: 11.5, color: "var(--text-tertiary)" }}>{fmtDate(e.arhiva_date)}</span>
-                          )}
-                        </div>
+                        <span style={{ display: "inline-block", padding: "2px 8px", background: b.bg, color: b.color, borderRadius: 10, fontSize: 11, fontWeight: 600 }}>
+                          {b.label}
+                        </span>
                       </td>
                     )}
                     <td>

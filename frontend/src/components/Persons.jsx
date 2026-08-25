@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import {
   Users, MagnifyingGlass, Plus, PencilSimple, Trash, ArrowSquareOut,
-  Spinner, X, Check, Printer,
+  Spinner, X, Check, Printer, ClockCounterClockwise,
 } from "@phosphor-icons/react";
 import api from "@/lib/api";
 
@@ -30,6 +30,7 @@ export default function Persons() {
   const [companyFilter, setCompanyFilter] = useState("");
   const [statusFilter, setStatusFilter] = useState(""); // "" / "domaci" / "stranci"
   const [modalOpen, setModalOpen] = useState(false);
+  const [historyModal, setHistoryModal] = useState(null); // jmbg string
   const [editing, setEditing] = useState(null);
   const [form, setForm] = useState(empEmpty);
   const [saving, setSaving] = useState(false);
@@ -382,6 +383,15 @@ export default function Persons() {
                       >
                         <Printer size={15} />
                       </button>
+                      <button
+                        onClick={() => setHistoryModal(p.jmbg)}
+                        style={{ border: "none", background: "transparent", padding: 5, borderRadius: 4, color: "#6366f1", cursor: "pointer", display: "flex" }}
+                        data-testid={`history-person-${p.id}`}
+                        title="Istorija zapošljavanja"
+                        disabled={!p.jmbg}
+                      >
+                        <ClockCounterClockwise size={15} />
+                      </button>
                       <button onClick={() => openEdit(p)} style={{ border: "none", background: "transparent", padding: 5, borderRadius: 4, color: "var(--text-secondary)", cursor: "pointer", display: "flex" }} data-testid={`edit-person-${p.id}`}>
                         <PencilSimple size={15} />
                       </button>
@@ -414,6 +424,150 @@ export default function Persons() {
           onGenerate={(fields) => printPonudaWithFields(ponudaModal.person, ponudaModal.type, fields, { closeModal: true })}
         />
       )}
+      
+      {historyModal && (
+        <HistoryModal jmbg={historyModal} onClose={() => setHistoryModal(null)} />
+      )}
+    </div>
+  );
+}
+
+function HistoryModal({ jmbg, onClose }) {
+  const [data, setData] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState("");
+  const navigate = useNavigate();
+  
+  useEffect(() => {
+    setLoading(true);
+    api.get(`/employees/history-by-jmbg`, { params: { jmbg } })
+      .then((r) => setData(r.data))
+      .catch((e) => setError(e.response?.data?.detail || "Greška pri učitavanju istorije"))
+      .finally(() => setLoading(false));
+  }, [jmbg]);
+  
+  const fmt = (iso) => {
+    if (!iso) return "—";
+    try { return new Date(iso).toLocaleDateString("sr-Latn", { day: "2-digit", month: "2-digit", year: "numeric" }); }
+    catch { return iso; }
+  };
+  
+  const durationDays = (start, end) => {
+    if (!start) return null;
+    const s = new Date(start);
+    const e = end ? new Date(end) : new Date();
+    if (isNaN(s.getTime())) return null;
+    const diff = Math.round((e - s) / (1000 * 60 * 60 * 24));
+    return diff >= 0 ? diff : null;
+  };
+  
+  const formatDuration = (days) => {
+    if (days === null || days === undefined) return "—";
+    if (days < 30) return `${days} d`;
+    if (days < 365) return `${Math.round(days / 30)} mj`;
+    const yrs = Math.floor(days / 365);
+    const rem = Math.round((days % 365) / 30);
+    return rem > 0 ? `${yrs}g ${rem}mj` : `${yrs}g`;
+  };
+  
+  return (
+    <div style={{ position: "fixed", inset: 0, background: "rgba(15,23,42,0.55)", zIndex: 1000, display: "flex", alignItems: "center", justifyContent: "center", padding: 20 }} onClick={onClose}>
+      <div onClick={(e) => e.stopPropagation()} style={{ background: "white", borderRadius: 12, width: "100%", maxWidth: 900, maxHeight: "90vh", overflow: "hidden", display: "flex", flexDirection: "column", boxShadow: "0 20px 60px rgba(0,0,0,0.3)" }} data-testid="history-modal">
+        <div style={{ padding: "16px 20px", borderBottom: "1px solid var(--border)", display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+          <div>
+            <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+              <ClockCounterClockwise size={18} weight="fill" style={{ color: "#6366f1" }} />
+              <div style={{ fontSize: 16, fontWeight: 700 }}>
+                Istorija zapošljavanja
+                {data && (data.ime || data.prezime) && <span style={{ marginLeft: 8, color: "var(--text-secondary)" }}> · {data.ime} {data.prezime}</span>}
+              </div>
+            </div>
+            <div style={{ fontSize: 11.5, color: "var(--text-tertiary)", marginTop: 4, fontFamily: "JetBrains Mono, monospace" }}>JMBG {jmbg}</div>
+          </div>
+          <button onClick={onClose} className="btn btn-secondary" style={{ padding: 6 }}><X size={16} /></button>
+        </div>
+        
+        <div style={{ padding: 20, overflow: "auto", flex: 1 }}>
+          {loading && <div style={{ textAlign: "center", padding: 40 }}><Spinner size={28} className="spin" /></div>}
+          {error && <div style={{ padding: 14, background: "#fef2f2", border: "1px solid #fca5a5", borderRadius: 8, color: "#991b1b", fontSize: 13 }}>{error}</div>}
+          
+          {!loading && !error && data && (
+            <>
+              {data.count === 0 ? (
+                <div style={{ textAlign: "center", padding: 40, color: "var(--text-tertiary)" }}>
+                  <Users size={32} weight="thin" style={{ marginBottom: 8, opacity: 0.5 }} />
+                  <div style={{ fontSize: 14 }}>Nema evidentiranih zapošljavanja za ovaj JMBG.</div>
+                </div>
+              ) : (
+                <>
+                  <div style={{ background: "#f8fafc", border: "1px solid var(--border-light)", borderRadius: 8, padding: 12, marginBottom: 14, display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 10, fontSize: 12 }}>
+                    <div><div style={{ color: "var(--text-tertiary)", fontSize: 10.5, textTransform: "uppercase", letterSpacing: 0.5, fontWeight: 700, marginBottom: 3 }}>Ukupno zapošljavanja</div><div style={{ fontSize: 15, fontWeight: 700 }}>{data.count}</div></div>
+                    <div><div style={{ color: "var(--text-tertiary)", fontSize: 10.5, textTransform: "uppercase", letterSpacing: 0.5, fontWeight: 700, marginBottom: 3 }}>Aktivna</div><div style={{ fontSize: 15, fontWeight: 700, color: "#10b981" }}>{data.history.filter((h) => h.status === "aktivan").length}</div></div>
+                    <div><div style={{ color: "var(--text-tertiary)", fontSize: 10.5, textTransform: "uppercase", letterSpacing: 0.5, fontWeight: 700, marginBottom: 3 }}>Arhivirana</div><div style={{ fontSize: 15, fontWeight: 700, color: "#94a3b8" }}>{data.history.filter((h) => h.status === "arhiva").length}</div></div>
+                  </div>
+                  
+                  <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+                    {data.history.map((h) => {
+                      const isActive = h.status === "aktivan";
+                      const endLabel = isActive ? "u toku" : fmt(h.arhiva_date);
+                      const days = durationDays(h.datum_pocetka, isActive ? null : h.arhiva_date);
+                      return (
+                        <div
+                          key={h.id}
+                          onClick={() => navigate(`/firme/${h.company_id}`)}
+                          style={{
+                            padding: 14,
+                            border: `1px solid ${isActive ? "#93c5fd" : "var(--border)"}`,
+                            borderLeft: `4px solid ${isActive ? "#10b981" : "#94a3b8"}`,
+                            borderRadius: 8,
+                            background: isActive ? "#f0fdf4" : "white",
+                            cursor: "pointer",
+                            transition: "all 0.15s",
+                          }}
+                          onMouseEnter={(e) => e.currentTarget.style.boxShadow = "0 4px 12px rgba(0,0,0,0.08)"}
+                          onMouseLeave={(e) => e.currentTarget.style.boxShadow = "none"}
+                          data-testid={`history-record-${h.id}`}
+                        >
+                          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 10, marginBottom: 6 }}>
+                            <div style={{ flex: 1 }}>
+                              <div style={{ fontSize: 14, fontWeight: 600 }}>
+                                {h.company_naziv_skraceni || h.company_naziv || "?"}
+                                <ArrowSquareOut size={11} style={{ marginLeft: 6, opacity: 0.4, verticalAlign: "middle" }} />
+                              </div>
+                              <div style={{ fontSize: 11.5, color: "var(--text-tertiary)", marginTop: 2 }}>
+                                {h.pozicija || "—"}
+                                {h.company_pib && <span style={{ marginLeft: 8, fontFamily: "JetBrains Mono, monospace" }}>PIB {h.company_pib}</span>}
+                              </div>
+                            </div>
+                            <span style={{ padding: "3px 10px", borderRadius: 12, fontSize: 10.5, fontWeight: 700, letterSpacing: 0.4, background: isActive ? "#dcfce7" : "#f1f5f9", color: isActive ? "#166534" : "#475569" }}>
+                              {isActive ? "AKTIVAN" : (h.arhiva_reason === "prestanak" ? "PRESTANAK" : h.arhiva_reason === "istekao" ? "ISTEKAO" : "ARHIVA")}
+                            </span>
+                          </div>
+                          <div style={{ display: "flex", alignItems: "center", gap: 12, fontSize: 12, color: "var(--text-secondary)", marginTop: 8 }}>
+                            <div><span style={{ color: "var(--text-tertiary)" }}>Od:</span> <span style={{ fontFamily: "JetBrains Mono, monospace", fontWeight: 600 }}>{fmt(h.datum_pocetka)}</span></div>
+                            <span style={{ color: "var(--text-tertiary)" }}>→</span>
+                            <div><span style={{ color: "var(--text-tertiary)" }}>Do:</span> <span style={{ fontFamily: "JetBrains Mono, monospace", fontWeight: 600, color: isActive ? "#10b981" : "var(--text-primary)" }}>{endLabel}</span></div>
+                            {days !== null && (
+                              <span style={{ marginLeft: "auto", padding: "2px 8px", background: "white", border: "1px solid var(--border)", borderRadius: 10, fontSize: 10.5, fontWeight: 600, color: "var(--text-secondary)" }}>
+                                {formatDuration(days)}
+                              </span>
+                            )}
+                          </div>
+                          {h.dopunski_rad && (
+                            <div style={{ marginTop: 6, fontSize: 10.5, color: "#1e40af", fontWeight: 600 }}>
+                              ⓘ Dopunski rad
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })}
+                  </div>
+                </>
+              )}
+            </>
+          )}
+        </div>
+      </div>
     </div>
   );
 }

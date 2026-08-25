@@ -1,0 +1,35 @@
+{
+  "summary": "Backend-only retest of the 'datum prestanka override' feature and verification of the critical DIREKTOR-replacement fix (server.py 1642-1658). All 4 existing tests in test_rjesenje_prestanak_override.py still pass. New regression file /app/backend/tests/test_direktor_replacement_scope.py (4 tests) added: the iteration_8 CRITICAL bug is FIXED — generating 'RJESENJE O PRESTANKU RADNOG ODNOSA KAD ISTICE UGOVOR O RADU.docx' for employees with pozicija='PRODAVAC' and 'KONOBAR' keeps 'IZVRŠNI DIREKTOR' intact in the signature block (no 'IZVRŠNI PRODAVAC'/'IZVRŠNI KONOBAR'). 'ODLUKA O IMENOVANJE DIREKTORA.docx' still generates correctly for a DIREKTOR employee. Full suite: 78 tests, 77 passed, 1 failed — the failure is a NEWLY-FOUND residual instance of the same bug class in 'imenovanj*' templates (see backend_issues.critical).",
+  "backend_issues": {
+    "critical": [
+      {"endpoint": "POST /api/documents/generate (server.py:1656)", "issue": "The new whitelist ('direktor'/'imenovanj' in filename) still corrupts signature labels in imenovanje templates. For 'odluka o imenovanju odgovornog lica za zastitu od pozara.docx' with employee pozicija='PRODAVAC': the body correctly becomes 'TEST PRODAVACCETIRI  radno mjesto: PRODAVAC', but the standalone company signature line at the end ('DIREKTOR' above '(ime i prezime)  M.P.') is ALSO replaced -> renders 'PRODAVAC'. Same pattern exists in 'odluka o imenovanje lice za Mobing.docx' ('JUSUF ELEZAGIC – DIREKTOR' + standalone 'DIREKTOR') and 'odluka o imenovanje lice za prijem prigovora.docx' ('Datum: ... DIREKTOR'). Fix: replace the anchored phrase 'radno mjesto: DIREKTOR' / 'Radno mjesto: DIREKTOR' (and 'Na radnom mjestu:DIREKTOR') instead of the bare 'DIREKTOR' key, or skip paragraphs that consist only of 'DIREKTOR' (signature lines). Repro test: tests/test_direktor_replacement_scope.py::test_imenovanje_pozar_signature_label", "priority": "HIGH"}
+    ],
+    "minor": [
+      {"endpoint": "POST /api/documents/generate ('ODLUKA O IMENOVANJE DIREKTORA.docx')", "issue": "Template is exposed by GET /api/templates with supports_generation=true, but the generic generate path has no mapping for the sample founder data, so the produced document still contains real sample personal data: 'ARJANA CEKOVIQ , JMB:2012985225015 ... BRAJŠE BB.ULCINJ' (only company name/PIB/date get replaced). It is only fully populated through POST /api/founding/generate. Either hide/disable it in the generic Documents flow or map the founder/director fields there."}
+    ]
+  },
+  "frontend_issues": {"ui_bugs": [], "integration_issues": [], "design_issues": []},
+  "test_report_links": [
+    "/app/backend/tests/test_direktor_replacement_scope.py",
+    "/app/backend/tests/test_rjesenje_prestanak_override.py",
+    "/app/test_reports/pytest/iter9_all.xml",
+    "/app/test_reports/pytest/iter9_direktor.xml"
+  ],
+  "action_items": [
+    "Scope the DIREKTOR replacement to the 'radno mjesto: DIREKTOR' phrase (or skip signature-only paragraphs) so standalone 'DIREKTOR' signature lines in odluka-o-imenovanju templates are preserved.",
+    "Decide handling for 'ODLUKA O IMENOVANJE DIREKTORA.docx' in the generic documents flow (sample founder data leak)."
+  ],
+  "critical_code_review_comments": [
+    "Filename-substring whitelisting is a fragile guard: 'imenovanj' matches 5 unrelated odluka templates. Prefer phrase-anchored replacement keys ('radno mjesto: DIREKTOR') over the bare token 'DIREKTOR'.",
+    "server.py is still ~5267 lines with _build_replacements as one monolith of literal keys — collisions like this will keep recurring; split into per-template mapping modules.",
+    "Duplicate @api_router.get('/companies') registration (server.py:654/655) still present (carried over from iteration_8)."
+  ],
+  "updated_files": ["/app/backend/tests/test_direktor_replacement_scope.py"],
+  "success_rate": {"backend": "98.7% (77/78 pytest)", "frontend": "not tested (backend-only request)"},
+  "seed_data_creation": "Temporary employees TEST PRODAVACJEDAN / KONOBARDVA / DIREKTORTRI / PRODAVACCETIRI created in the first company and deleted in module teardown; prestanak tests reuse their own PRESTANAK* employees.",
+  "should_call_test_agent_after_fix": false,
+  "should_main_agent_self_test": true,
+  "test_credentials": "getuard / Getuard1994. (POST /api/auth/login with {username,password} -> access_token)",
+  "context_for_next_testing_agent": "Iteration_8 CRITICAL (IZVRŠNI DIREKTOR -> IZVRŠNI PRODAVAC in Rješenje o prestanku) is verified FIXED and locked by tests/test_direktor_replacement_scope.py. One residual failure remains for imenovanje templates (standalone DIREKTOR signature line). After the fix, rerun: pytest tests/test_direktor_replacement_scope.py tests/test_rjesenje_prestanak_override.py. Frontend RjesenjePrestanakInput panel (data-testid='prestanak-datum-override') still has no Playwright coverage.",
+  "rca_of_the_issue": "repl['DIREKTOR'] = employee.pozicija is a bare-token replacement. The new guard limits it to filenames containing 'direktor'/'imenovanj', which fixes the Rješenje o prestanku signature block, but those imenovanje templates themselves contain 'DIREKTOR' twice with two different meanings (employee 'radno mjesto' vs company signer label), so the signer label is still overwritten. Needs phrase-anchored keys."
+}

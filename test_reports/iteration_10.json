@@ -1,0 +1,35 @@
+{
+  "summary": "Backend-only focused retest of the tightened DIREKTOR replacement whitelist (server.py:1651-1661: is_direktor_tpl = 'direktor' in filename AND ('imenovanj' OR 'ugovor' in filename)). Iteration_9 CRITICAL is FIXED: 'odluka o imenovanju odgovornog lica za zastitu od pozara.docx' with pozicija='PRODAVAC' now keeps the standalone 'DIREKTOR' signature label intact; same verified for 'odluka o imenovanje lice za Mobing.docx' and 'odluka o imenovanju lica za zastitu na radu.docx'. Iteration_8 regression still holds: 'RJESENJE O PRESTANKU RADNOG ODNOSA KAD ISTICE UGOVOR O RADU.docx' keeps 'IZVRŠNI DIREKTOR' (no 'IZVRŠNI PRODAVAC'/'IZVRŠNI KONOBAR'). Positive-scope templates generate without corruption: 'ODLUKA O IMENOVANJE DIREKTORA.docx' (DIREKTOR employee) and 'UGOVOR O RADU DIREKTOR.docx' (both DIREKTOR and non-director employee). Whitelist scope audited against the templates dir: it now matches EXACTLY 2 files (ODLUKA O IMENOVANJE DIREKTORA.docx, UGOVOR O RADU DIREKTOR.docx). Full suite: 82 tests, 82 passed (0 failures).",
+  "backend_issues": {
+    "critical": [],
+    "minor": [
+      {"endpoint": "POST /api/documents/generate ('UGOVOR O RADU DIREKTOR.docx')", "issue": "Sample personal data leak when the company has empty director fields. Company 'DOO CASTELLOTRIO' has direktor_jmbg='' so the template's sample JMBG stays: output line reads '<direktor_ime>  , jmb:0303987220166,  SSS' (0303987220166 is a real sample person's JMBG from SAMPLE_DIRECTOR_JMBGS). Blank company fields should map to '____________' instead of leaving sample data."},
+      {"endpoint": "POST /api/documents/generate ('UGOVOR O RADU DIREKTOR.docx')", "issue": "Semantic inconsistency (not a corruption): the person in the document is taken from company.direktor_ime (SAMPLE_DIRECTORS mapping), while 'Na radnom mjestu:DIREKTOR' is replaced with the SELECTED employee's pozicija. For a PRODAVAC employee the document reads 'EDONA OSMANOVIĆ ... Na radnom mjestu:PRODAVAC' — director name + non-director position. Consider not applying the pozicija replacement in this template when the selected employee is not a director, or hide employee selection for it."},
+      {"endpoint": "POST /api/documents/generate ('odluka o imenovanju ...' non-direktor templates)", "issue": "Side effect of the tighter whitelist (accepted trade-off, flagged for awareness): in imenovanje templates the BODY phrase 'radno mjesto: DIREKTOR' is now also left untouched, so it still shows 'DIREKTOR' even for a PRODAVAC appointee. Phrase-anchored keys ('radno mjesto: DIREKTOR') would fix body + signature correctly."}
+    ]
+  },
+  "frontend_issues": {"ui_bugs": [], "integration_issues": [], "design_issues": []},
+  "test_report_links": [
+    "/app/backend/tests/test_direktor_replacement_scope.py",
+    "/app/test_reports/pytest/iter10_all.xml",
+    "/app/test_reports/pytest/iter10_direktor.xml"
+  ],
+  "action_items": [
+    "Optional: map blank company director fields (direktor_jmbg/adresa) to '____________' so sample JMBG 0303987220166 does not leak in UGOVOR O RADU DIREKTOR.",
+    "Optional: decide whether the employee pozicija replacement should apply at all in 'UGOVOR O RADU DIREKTOR.docx' when the selected employee is not a director.",
+    "Optional (tech debt): move from bare-token repl['DIREKTOR'] to phrase-anchored keys so imenovanje bodies can also be populated."
+  ],
+  "critical_code_review_comments": [
+    "The whitelist now matches exactly 2 templates, so the immediate bug class is contained, but filename-substring gating remains fragile — any new template named e.g. 'ugovor o djelu direktor.docx' would silently re-enable bare-token DIREKTOR replacement.",
+    "server.py is ~5270 lines and _build_replacements is a single monolith of literal keys; split into per-template mapping modules.",
+    "Duplicate @api_router.get('/companies') registration (server.py:654/655) still present (carried from iteration_8/9)."
+  ],
+  "updated_files": ["/app/backend/tests/test_direktor_replacement_scope.py"],
+  "success_rate": {"backend": "100% (82/82 pytest)", "frontend": "not tested (backend-only request)"},
+  "seed_data_creation": "Temporary employees TEST PRODAVACJEDAN/KONOBARDVA/DIREKTORTRI/PRODAVACCETIRI/PRODAVACPET/PRODAVACSEST/PRODAVACSEDAM/DIREKTOROSAM created in the first company via API and deleted in module teardown.",
+  "should_call_test_agent_after_fix": false,
+  "should_main_agent_self_test": true,
+  "test_credentials": "getuard / Getuard1994. (POST /api/auth/login {username,password} -> access_token)",
+  "context_for_next_testing_agent": "DIREKTOR whitelist bug is verified FIXED and locked by 8 tests in tests/test_direktor_replacement_scope.py (pozar/mobing/zastita-na-radu negative cases + prestanak regression + imenovanje/ugovor positive cases). Full backend suite green (82 tests, ~50s): `cd /app/backend && python -m pytest tests/ -v`. One test assertion was corrected this iteration: UGOVOR O RADU DIREKTOR maps the person from company.direktor_ime, NOT from the selected employee — do not assert the employee name there. Remaining open items are minor data-mapping issues (see backend_issues.minor). Frontend RjesenjePrestanakInput panel (data-testid='prestanak-datum-override') still has no Playwright coverage.",
+  "rca_of_the_issue": "Iteration_9 failure was caused by whitelisting on 'imenovanj' alone, which matched 5 unrelated odluka templates whose only 'DIREKTOR' occurrence is the company signer label. Requiring BOTH 'direktor' AND ('imenovanj'|'ugovor') in the filename narrows the match to the 2 templates where 'DIREKTOR' genuinely denotes the employee's position; verified by directory audit and by regenerating all affected documents."
+}

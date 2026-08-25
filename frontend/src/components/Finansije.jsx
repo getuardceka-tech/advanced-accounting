@@ -3,7 +3,7 @@ import {
   CurrencyEur, Plus, MagnifyingGlass, X, Check, Spinner,
   Trash, Pencil, Receipt, TrendUp, TrendDown,
   CheckCircle, Clock, Calendar, Briefcase, Wallet,
-  Warning, DownloadSimple, FileXls, FilePdf,
+  Warning, DownloadSimple, FileXls, FilePdf, FunnelSimple,
 } from "@phosphor-icons/react";
 import api from "@/lib/api";
 
@@ -527,13 +527,19 @@ function Troskovi() {
   const [companies, setCompanies] = useState([]);
   const [godina, setGodina] = useState(new Date().getFullYear());
   const [filterKat, setFilterKat] = useState("");
+  const [filterMjesec, setFilterMjesec] = useState(0); // 0 = svi mjeseci
+  const [filterCompany, setFilterCompany] = useState(""); // "" = sve firme
   const [modal, setModal] = useState(null);
   const [loading, setLoading] = useState(true);
   
   const load = async () => {
     setLoading(true);
+    const params = { godina };
+    if (filterKat) params.kategorija = filterKat;
+    if (filterMjesec) params.mjesec = filterMjesec;
+    if (filterCompany) params.company_id = filterCompany;
     const [e, s, c] = await Promise.all([
-      api.get("/finance/expenses", { params: { godina, ...(filterKat ? { kategorija: filterKat } : {}) } }),
+      api.get("/finance/expenses", { params }),
       services.length ? Promise.resolve({ data: services }) : api.get("/finance/services"),
       companies.length ? Promise.resolve({ data: companies }) : api.get("/companies"),
     ]);
@@ -542,7 +548,7 @@ function Troskovi() {
     if (!companies.length) setCompanies(c.data);
     setLoading(false);
   };
-  useEffect(() => { load(); /* eslint-disable-next-line */ }, [godina, filterKat]);
+  useEffect(() => { load(); /* eslint-disable-next-line */ }, [godina, filterKat, filterMjesec, filterCompany]);
   
   const remove = async (id) => {
     if (!confirm("Obrisati trošak?")) return;
@@ -552,6 +558,25 @@ function Troskovi() {
   
   const totalOpsti = items.filter((i) => i.kategorija === "opsti").reduce((a, i) => a + (Number(i.iznos) || 0), 0);
   const totalUsluga = items.filter((i) => i.kategorija === "usluga").reduce((a, i) => a + (Number(i.iznos) || 0), 0);
+  const companyMap = useMemo(() => Object.fromEntries(companies.map((c) => [c.id, c.naziv_skraceni || c.naziv])), [companies]);
+  
+  // Mjesečni breakdown — ali samo ako nije već filtrirano po jednom mjesecu
+  const monthlyBreakdown = useMemo(() => {
+    const monthly = Array.from({ length: 12 }, () => ({ opsti: 0, usluga: 0, count: 0 }));
+    items.forEach((it) => {
+      const m = parseInt((it.datum || "").slice(5, 7), 10);
+      if (m >= 1 && m <= 12) {
+        const bucket = monthly[m - 1];
+        if (it.kategorija === "opsti") bucket.opsti += Number(it.iznos) || 0;
+        else bucket.usluga += Number(it.iznos) || 0;
+        bucket.count += 1;
+      }
+    });
+    return monthly;
+  }, [items]);
+  const maxMonthlyTotal = Math.max(...monthlyBreakdown.map((m) => m.opsti + m.usluga), 1);
+  
+  const selectedCompanyName = filterCompany ? (companyMap[filterCompany] || "?") : "";
   
   return (
     <div>
@@ -562,21 +587,106 @@ function Troskovi() {
       </div>
       <div style={{ marginBottom: 14, display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
         <YearPicker value={godina} onChange={setGodina} width={100} />
+        <select className="select" value={filterMjesec} onChange={(e) => setFilterMjesec(Number(e.target.value))} style={{ width: 150 }} data-testid="filter-mjesec">
+          <option value={0}>Svi mjeseci</option>
+          {MJESECI.map((m, i) => (
+            <option key={i + 1} value={i + 1}>{m}</option>
+          ))}
+        </select>
+        <select className="select" value={filterCompany} onChange={(e) => setFilterCompany(e.target.value)} style={{ width: 230, maxWidth: "35%" }} data-testid="filter-company">
+          <option value="">Sve firme</option>
+          {companies.map((c) => (
+            <option key={c.id} value={c.id}>{c.naziv_skraceni || c.naziv}</option>
+          ))}
+        </select>
         <select className="select" value={filterKat} onChange={(e) => setFilterKat(e.target.value)} style={{ width: 180 }}>
           <option value="">Sve kategorije</option>
           <option value="opsti">Opšti agencijski</option>
           <option value="usluga">Vezan za uslugu</option>
         </select>
+        {(filterMjesec > 0 || filterCompany || filterKat) && (
+          <button
+            className="btn btn-secondary"
+            onClick={() => { setFilterMjesec(0); setFilterCompany(""); setFilterKat(""); }}
+            data-testid="clear-filters-btn"
+            style={{ padding: "6px 12px", fontSize: 12 }}
+          >
+            <X size={12} /> Poništi filtere
+          </button>
+        )}
+        <div style={{ flex: 1 }} />
         <button className="btn btn-primary" onClick={() => setModal({ entry: { datum: new Date().toISOString().slice(0, 10), kategorija: "opsti" } })} data-testid="add-expense-btn">
           <Plus size={14} /> Dodaj trošak
         </button>
       </div>
       
+      {/* Active filter banner */}
+      {(filterMjesec > 0 || filterCompany) && (
+        <div style={{ marginBottom: 12, padding: "10px 14px", background: "#eff6ff", border: "1px solid #93c5fd", borderRadius: 8, fontSize: 12.5, color: "#1e40af", display: "flex", alignItems: "center", gap: 8 }}>
+          <FunnelSimple size={13} weight="fill" />
+          <span>
+            Prikazuju se troškovi
+            {filterMjesec > 0 && <> za mjesec <strong>{MJESECI[filterMjesec - 1]} {godina}.</strong></>}
+            {filterCompany && <> za firmu <strong>{selectedCompanyName}</strong></>}
+            {" — ukupno "} <strong>{items.length}</strong> {items.length === 1 ? "trošak" : "troškova"}
+          </span>
+        </div>
+      )}
+      
+      {/* Mjesečni breakdown - prikazi samo kad nije filter po jednom mjesecu */}
+      {filterMjesec === 0 && items.length > 0 && (
+        <div style={{ marginBottom: 14, background: "white", border: "1px solid var(--border)", borderRadius: 10, padding: 14 }}>
+          <div style={{ fontSize: 12, fontWeight: 700, color: "var(--text-secondary)", textTransform: "uppercase", letterSpacing: 0.4, marginBottom: 12 }}>
+            📊 Troškovi po mjesecima ({godina}.){filterCompany ? ` — ${selectedCompanyName}` : ""}
+          </div>
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(12, 1fr)", gap: 6, alignItems: "end" }}>
+            {monthlyBreakdown.map((m, i) => {
+              const total = m.opsti + m.usluga;
+              const hasData = total > 0;
+              const heightPct = hasData ? Math.max((total / maxMonthlyTotal) * 100, 8) : 3;
+              return (
+                <div
+                  key={i}
+                  onClick={() => hasData && setFilterMjesec(i + 1)}
+                  data-testid={`month-bar-${i + 1}`}
+                  style={{ cursor: hasData ? "pointer" : "default", display: "flex", flexDirection: "column", alignItems: "center" }}
+                >
+                  <div style={{ fontSize: 10, color: "var(--text-tertiary)", fontWeight: 600, marginBottom: 4, fontFamily: "JetBrains Mono, monospace" }}>
+                    {hasData ? total.toFixed(0) : "—"}
+                  </div>
+                  <div style={{ width: "100%", height: 80, display: "flex", flexDirection: "column-reverse", background: "#f8fafc", borderRadius: 4, overflow: "hidden", border: "1px solid var(--border-light)" }}>
+                    {m.opsti > 0 && (
+                      <div style={{ height: `${(m.opsti / maxMonthlyTotal) * 100}%`, background: "#3b82f6", transition: "all 0.2s" }} title={`Opšti: ${m.opsti.toFixed(2)} €`} />
+                    )}
+                    {m.usluga > 0 && (
+                      <div style={{ height: `${(m.usluga / maxMonthlyTotal) * 100}%`, background: "#8b5cf6", transition: "all 0.2s" }} title={`Usluga: ${m.usluga.toFixed(2)} €`} />
+                    )}
+                  </div>
+                  <div style={{ fontSize: 10.5, color: hasData ? "var(--text-secondary)" : "var(--text-tertiary)", fontWeight: hasData ? 600 : 400, marginTop: 6 }}>
+                    {MJESECI[i].slice(0, 3)}
+                  </div>
+                  {m.count > 0 && (
+                    <div style={{ fontSize: 9, color: "var(--text-tertiary)", marginTop: 1 }}>
+                      {m.count}
+                    </div>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+          <div style={{ display: "flex", gap: 14, marginTop: 10, fontSize: 11, color: "var(--text-tertiary)", justifyContent: "center" }}>
+            <span style={{ display: "flex", alignItems: "center", gap: 5 }}><span style={{ width: 10, height: 10, background: "#3b82f6", borderRadius: 2 }} />Opšti</span>
+            <span style={{ display: "flex", alignItems: "center", gap: 5 }}><span style={{ width: 10, height: 10, background: "#8b5cf6", borderRadius: 2 }} />Usluga</span>
+            <span style={{ marginLeft: 8, fontStyle: "italic" }}>Klikni na mjesec za detalje</span>
+          </div>
+        </div>
+      )}
+      
       {loading ? <div style={{ padding: 40, textAlign: "center" }}><Spinner size={24} className="spin" /></div> : (
         <div style={{ background: "white", border: "1px solid var(--border)", borderRadius: 10, overflow: "hidden" }}>
           {items.length === 0 ? (
             <div style={{ padding: 40, textAlign: "center", color: "var(--text-tertiary)", fontSize: 13 }}>
-              Nema troškova za {godina}. Dodaj prvi trošak.
+              Nema troškova za odabrane filtere.
             </div>
           ) : (
             <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}>
@@ -584,6 +694,7 @@ function Troskovi() {
                 <tr>
                   <th style={th}>Datum</th>
                   <th style={th}>Naziv</th>
+                  <th style={th}>Firma</th>
                   <th style={th}>Kategorija</th>
                   <th style={{ ...th, textAlign: "right" }}>Iznos (€)</th>
                   <th style={th}>Napomena</th>
@@ -595,6 +706,15 @@ function Troskovi() {
                   <tr key={it.id} style={{ borderBottom: "1px solid var(--border-light)" }}>
                     <td style={{ ...td, fontSize: 12.5 }}>{new Date(it.datum).toLocaleDateString("sr-Latn-ME")}</td>
                     <td style={{ ...td, fontWeight: 500 }}>{it.naziv}</td>
+                    <td style={{ ...td, fontSize: 12 }}>
+                      {it.company_id ? (
+                        <span style={{ display: "inline-block", padding: "2px 8px", background: "#e0e7ff", color: "#4338ca", borderRadius: 10, fontSize: 11.5, fontWeight: 500 }}>
+                          {companyMap[it.company_id] || "?"}
+                        </span>
+                      ) : (
+                        <span style={{ color: "var(--text-tertiary)" }}>—</span>
+                      )}
+                    </td>
                     <td style={td}>
                       <span style={{ fontSize: 11.5, padding: "3px 8px", borderRadius: 10, fontWeight: 500, background: it.kategorija === "opsti" ? "#dbeafe" : "#f3e8ff", color: it.kategorija === "opsti" ? "#1e40af" : "#7c3aed" }}>
                         {it.kategorija === "opsti" ? "Opšti" : "Usluga"}

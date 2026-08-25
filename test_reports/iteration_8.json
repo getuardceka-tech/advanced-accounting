@@ -1,0 +1,39 @@
+{
+  "summary": "Backend-only testing of the 'datum prestanka' override feature for template 'RJESENJE O PRESTANKU RADNOG ODNOSA KAD ISTICE UGOVOR O RADU.docx'. Created /app/backend/tests/test_rjesenje_prestanak_override.py with 4 pytest cases (custom override wins, employee.datum_prestanka fallback, no-dates -> today fallback, blank/whitespace override -> employee fallback). All 4 pass; generated docx read with python-docx confirmed sample dates 31.03.2026 / 28.02.2026 are fully replaced in paragraphs 3, 7 and 8. Also ran the full existing backend suite (74 tests) — all pass, no regressions. During docx inspection one unrelated pre-existing content bug was found (signature line 'IZVRŠNI DIREKTOR' becomes 'IZVRŠNI PRODAVAC'). Frontend/Playwright not tested (testing_type=backend only).",
+  "backend_issues": {
+    "critical": [
+      {"endpoint": "POST /api/documents/generate (server.py:1649)", "issue": "Global replacement repl[\"DIREKTOR\"] = employee[\"pozicija\"] corrupts the signature block of the generated Rješenje: 'IZVRŠNI DIREKTOR' is rendered as 'IZVRŠNI PRODAVAC' (employee position injected). Same as the earlier statut 'izvršni direktor' class of bug — the key 'DIREKTOR' is too generic and hits every occurrence in any template whenever an employee is selected. Should be scoped to the specific 'radno mjesto' sample token / excluded when preceded by 'IZVRŠNI'.", "priority": "HIGH"}
+    ],
+    "minor": [
+      {"endpoint": "POST /api/documents/generate", "issue": "Obrazloženje paragraph is hardcoded to 'radio ... na određeno vrijeme ... istice ugovor o radu na odredjeno vrijeme' even when the employee has vrsta_ugovora = 'neodredjeno' (tested with EGZON CEKA, neodređeno). Content is legally inconsistent for neodređeno employees; consider adapting the wording or restricting this template to odredjeno contracts."},
+      {"endpoint": "N/A (test infra)", "issue": "tests/test_document_generation.py hard-asserted os.environ REACT_APP_BACKEND_URL and blocked the whole suite collection. Fixed in-scope by falling back to /app/frontend/.env."}
+    ]
+  },
+  "frontend_issues": {"ui_bugs": [], "integration_issues": [], "design_issues": []},
+  "test_report_links": [
+    "/app/backend/tests/test_rjesenje_prestanak_override.py",
+    "/app/test_reports/pytest/prestanak_results.xml",
+    "/app/test_reports/pytest/all_results.xml"
+  ],
+  "action_items": [
+    "Fix server.py:1649 generic repl[\"DIREKTOR\"] mapping so the 'IZVRŠNI DIREKTOR' signature line is not overwritten by employee pozicija (affects all templates with an employee selected).",
+    "Decide on Obrazloženje wording for employees with vrsta_ugovora='neodredjeno'.",
+    "Frontend RjesenjePrestanakInput panel (data-testid='prestanak-datum-override') was NOT tested — request frontend testing if needed."
+  ],
+  "critical_code_review_comments": [
+    "server.py is 5258 lines — _build_replacements is a giant monolith of literal string keys; split into per-template mapping modules to avoid cross-template collisions like the DIREKTOR bug.",
+    "Duplicate route decorator: @api_router.get(\"/companies\") declared twice (server.py:654 and 655) — dead/shadowed registration, remove one.",
+    "Date parsing uses bare `except Exception: pass` in the 'prestan' block; silent failure would leave sample dates 31.03.2026 in a legal document. Log/raise 400 on unparsable datum_prestanka_override."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_rjesenje_prestanak_override.py",
+    "/app/backend/tests/test_document_generation.py"
+  ],
+  "success_rate": {"backend": "100% (74/74 incl. 4 new prestanak tests)", "frontend": "not tested"},
+  "seed_data_creation": "Created 3 temporary employees (TEST PRESTANAKDVA / PRESTANAKTRI / PRESTANAKCETIRI) in company 3b295e48-3981-4edb-9d0c-5bb8aca93ebc; deleted in module teardown. Existing employee EGZON CEKA (datum_prestanka=2026-05-31) reused read-only.",
+  "should_call_test_agent_after_fix": false,
+  "should_main_agent_self_test": true,
+  "test_credentials": "getuard / Getuard1994. (from /app/memory/test_credentials.md); login endpoint expects {username, password} and returns access_token",
+  "context_for_next_testing_agent": "New regression file: /app/backend/tests/test_rjesenje_prestanak_override.py (uses /api/documents/generate + /api/documents/download/{filename}, reads docx via python-docx). Priority chain override -> employee.datum_prestanka -> datum_kraja -> today all verified working. Outstanding bug: 'IZVRŠNI DIREKTOR' -> 'IZVRŠNI PRODAVAC' in signature block (server.py:1649). Frontend Documents.jsx RjesenjePrestanakInput panel still needs Playwright coverage.",
+  "rca_of_the_issue": "Feature itself is correct: custom_fields.datum_prestanka_override is read in both _build_replacements (line ~1367) and the 'prestan' post-processing block (~1848) before employee.datum_prestanka/datum_kraja, and maps to the sample tokens 31.03.2026 / 28.02.2026. The remaining defect is unrelated to this change: the broad key 'DIREKTOR' -> employee.pozicija substitution applied globally when an employee is provided."
+}

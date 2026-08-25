@@ -743,6 +743,69 @@ async def delete_company(company_id: str, username: str = Depends(get_current_us
 
 # ============== EMPLOYEES ROUTES ==============
 
+@api_router.get("/employees/history-by-jmbg")
+async def employee_history_by_jmbg(jmbg: str, username: str = Depends(get_current_user)):
+    """Vraća sve zapise zaposlenja za dati JMBG (istorija po svim firmama).
+    Sortirano po datum_pocetka opadajuće (najnoviji prvi).
+    """
+    if not jmbg or len(jmbg.strip()) < 5:
+        raise HTTPException(400, "JMBG mora imati najmanje 5 karaktera")
+    records = await db.employees.find({"jmbg": jmbg.strip()}, {"_id": 0}).to_list(500)
+    # Pridruži naziv firme
+    company_ids = list({r.get("company_id") for r in records if r.get("company_id")})
+    companies = await db.companies.find(
+        {"id": {"$in": company_ids}},
+        {"_id": 0, "id": 1, "naziv": 1, "naziv_skraceni": 1, "pib": 1}
+    ).to_list(500)
+    comp_map = {c["id"]: c for c in companies}
+    # Izračunaj status
+    today = datetime.now(timezone.utc).date()
+    for r in records:
+        arhiva_reason = ""
+        arhiva_date = ""
+        emp_prestanak = (r.get("datum_prestanka") or "").strip()
+        if emp_prestanak:
+            try:
+                dt = datetime.fromisoformat(emp_prestanak.replace("Z", "")).date()
+                if dt <= today:
+                    arhiva_reason = "prestanak"; arhiva_date = emp_prestanak
+            except Exception:
+                pass
+        if not arhiva_reason and (r.get("vrsta_ugovora") or "").lower() == "odredjeno":
+            emp_kraja = (r.get("datum_kraja") or "").strip()
+            if emp_kraja:
+                try:
+                    dt = datetime.fromisoformat(emp_kraja.replace("Z", "")).date()
+                    if dt < today:
+                        arhiva_reason = "istekao"; arhiva_date = emp_kraja
+                except Exception:
+                    pass
+        if not arhiva_reason and not r.get("aktivan", True):
+            arhiva_reason = "deaktiviran"
+        r["arhiva_reason"] = arhiva_reason
+        r["arhiva_date"] = arhiva_date
+        r["status"] = "aktivan" if not arhiva_reason else "arhiva"
+        c = comp_map.get(r.get("company_id"))
+        r["company_naziv"] = (c.get("naziv") if c else "") or ""
+        r["company_naziv_skraceni"] = (c.get("naziv_skraceni") if c else "") or ""
+        r["company_pib"] = (c.get("pib") if c else "") or ""
+    # Sort po datum_pocetka opadajuće (najnoviji prvi)
+    records.sort(key=lambda x: x.get("datum_pocetka", ""), reverse=True)
+    # Osobni podaci iz najnovijeg zapisa
+    latest = records[0] if records else {}
+    return {
+        "jmbg": jmbg.strip(),
+        "ime": latest.get("ime", ""),
+        "prezime": latest.get("prezime", ""),
+        "grad": latest.get("grad", ""),
+        "adresa": latest.get("adresa", ""),
+        "telefon": latest.get("telefon", ""),
+        "email": latest.get("email", ""),
+        "count": len(records),
+        "history": records,
+    }
+
+
 @api_router.get("/employees")
 async def list_employees(
     company_id: Optional[str] = None,
@@ -1363,7 +1426,9 @@ def _build_replacements(company: dict, employee: Optional[dict], agency: dict, c
             repl["300.00 eura"] = f"{plata_str} eura"
         
         # Datum prestanka radnog odnosa (odjava)
-        emp_prestanak = employee.get("datum_prestanka", "")
+        # Prioritet: 1) custom.datum_prestanka_override (unijet u modalu), 2) employee.datum_prestanka
+        override_prestanak = (custom.get("datum_prestanka_override") or "").strip()
+        emp_prestanak = override_prestanak or employee.get("datum_prestanka", "")
         formatted_prestanak = ""
         if emp_prestanak:
             try:
@@ -1643,8 +1708,20 @@ def _build_replacements(company: dict, employee: Optional[dict], agency: dict, c
             repl["EKREM HOT"] = emp_full
         if employee.get("jmbg"):
             repl["2804974280026"] = employee["jmbg"]
+        # "DIREKTOR" u sample-u zamijeni SAMO kada je pozicija zaista direktor
+        # (Inače bi 'IZVRŠNI DIREKTOR' u potpisnom bloku Rješenja o prestanku bio
+        # neispravno zamijenjen sa pozicijom zaposlenog kao npr. 'IZVRŠNI PRODAVAC'.)
         if employee.get("pozicija"):
-            repl["DIREKTOR"] = employee["pozicija"]
+            emp_pos_upper = employee["pozicija"].strip().upper()
+            # Whitelistuj SAMO template koje eksplicitno govore o direktoru
+            is_direktor_tpl = (
+                ("direktor" in _tpl_lower and ("imenovanj" in _tpl_lower or "ugovor" in _tpl_lower))
+            )
+            if emp_pos_upper and "DIREKTOR" in emp_pos_upper:
+                # Employee je direktor — nema šta da se mijenja
+                pass
+            elif is_direktor_tpl:
+                repl["DIREKTOR"] = employee["pozicija"]
     
     # ========== BLANK PLACEHOLDERS (underscore lines) ==========
     # NAPOMENA: Ovi generički blank-line replacements se NE primenjuju na šablone
@@ -1841,10 +1918,10 @@ def _build_replacements(company: dict, employee: Optional[dict], agency: dict, c
         repl["2026. godinu"] = f"{datetime.now().year}. godinu"
     
     # "Rješenje o prestanku radnog odnosa kad ističe ugovor o radu" → datum štampe = today;
-    # datum prestanka rada = employee.datum_prestanka (već mapirano kroz `prestanak_date`)
-    # Ako je ovo termination rješenje a nema datum_prestanka, koristi datum_kraja
+    # Prioritet: 1) custom.datum_prestanka_override (iz modala), 2) employee.datum_prestanka, 3) employee.datum_kraja
     if "prestan" in tname_lower and employee:
-        emp_prestanak2 = employee.get("datum_prestanka") or employee.get("datum_kraja")
+        override_dt = (custom.get("datum_prestanka_override") or "").strip()
+        emp_prestanak2 = override_dt or employee.get("datum_prestanka") or employee.get("datum_kraja")
         if emp_prestanak2:
             try:
                 dt = datetime.fromisoformat(emp_prestanak2.replace('Z',''))
@@ -2599,6 +2676,23 @@ async def generate_document(req: DocumentGenerateRequest, username: str = Depend
             custom_fields_in["broj_ponude"] = f"{new_num:02d}/{now_year}"
     
     replacements = _build_replacements(company, employee, agency, custom_fields_in, req.template_filename)
+    
+    # === AUTO-SAVE: Kad se generiše Rješenje o prestanku sa datum_prestanka_override, 
+    # snimi taj datum u karton radnika kako bi radnik pao u arhivu automatski
+    if employee and "prestank" in req.template_filename.lower():
+        override_dt = (custom_fields_in.get("datum_prestanka_override") or "").strip()
+        if override_dt:
+            await db.employees.update_one(
+                {"id": req.employee_id},
+                {"$set": {
+                    "datum_prestanka": override_dt,
+                    "aktivan": False,
+                    "updated_at": datetime.now(timezone.utc).isoformat(),
+                }}
+            )
+            # Refresh employee dict za dalja mapiranja u istoj request-obradi
+            employee["datum_prestanka"] = override_dt
+            employee["aktivan"] = False
     
     # Load template, replace, save
     doc = Document(str(template_path))
@@ -3697,6 +3791,7 @@ async def delete_service(sid: str, username: str = Depends(get_current_user)):
 async def list_expenses(
     kategorija: Optional[str] = None,
     godina: Optional[int] = None,
+    mjesec: Optional[int] = None,
     company_id: Optional[str] = None,
     extra_service_id: Optional[str] = None,
     username: str = Depends(get_current_user),
@@ -3711,6 +3806,9 @@ async def list_expenses(
     items = await db.expenses.find(query, {"_id": 0}).sort("datum", -1).to_list(1000)
     if godina:
         items = [it for it in items if it.get("datum", "").startswith(str(godina))]
+    if mjesec:
+        mj = f"-{mjesec:02d}-"
+        items = [it for it in items if mj in it.get("datum", "")]
     return items
 
 

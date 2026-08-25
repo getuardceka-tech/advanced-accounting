@@ -1,0 +1,32 @@
+{
+  "summary": "Backend-only testing of (a) auto-save of datum_prestanka_override on POST /api/documents/generate for 'prestanak' templates and (b) new GET /api/employees/history-by-jmbg. Created /app/backend/tests/test_employment_history_and_autosave.py with 10 tests - all passed. Full regression of 5 existing pytest files (29 tests) also passed. Total 39/39 backend tests green. Verified real cross-company history for JMBG 2301996220017 (EGZON CEKA, 2 records: PR. ARSIM CEKOVIĆ STR REA 2026-07-01 + SUMA FRESH MARKET DOO). Restored EGZON CEKA state (aktivan=true, datum_prestanka='') after tests; no leftover TEST_ data.",
+  "backend_issues": {
+    "critical": [],
+    "minor": [
+      {"endpoint": "/api/documents/generate", "issue": "Side-effect on seeded data: existing regression test tests/test_rjesenje_prestanak_override.py::test_override_from_modal generates the prestanak template for the real employee EGZON CEKA (63283aaa-...) with datum_prestanka_override=2026-12-31. With the new auto-save this now permanently sets datum_prestanka=2026-12-31 and aktivan=false on the seeded employee, moving him to Arhiva. I restored the state manually, but that test should be changed to use a throwaway employee."},
+      {"endpoint": "/api/employees/history-by-jmbg", "issue": "Records with empty datum_pocetka sort last (string sort). EGZON's SUMA FRESH MARKET DOO record has datum_pocetka='' so 'Datum prijave' will render blank in the HistoryModal — data-quality/UX nit, not a code bug."}
+    ]
+  },
+  "frontend_issues": {"ui_bugs": [], "integration_issues": [], "design_issues": []},
+  "test_report_links": [
+    "/app/backend/tests/test_employment_history_and_autosave.py",
+    "/app/test_reports/pytest/pytest_results.xml"
+  ],
+  "action_items": [
+    "Optional: change tests/test_rjesenje_prestanak_override.py::test_override_from_modal to create its own temp employee instead of mutating seeded EGZON CEKA (auto-save now makes that test destructive).",
+    "Optional: extract the shared arhiva_reason/status computation (duplicated between list_employees and history-by-jmbg) into a helper."
+  ],
+  "critical_code_review_comments": [
+    "Auto-save block (server.py ~2680) is correctly gated on 'prestank' in template name AND non-empty stripped override; verified all 4 branches by test.",
+    "Route /employees/history-by-jmbg is correctly declared before /employees/{employee_id}, so no path-param shadowing.",
+    "All history records exclude MongoDB _id (verified in assertion); auth is enforced (403 without token) and missing jmbg returns 422, short jmbg 400."
+  ],
+  "updated_files": ["/app/backend/tests/test_employment_history_and_autosave.py"],
+  "success_rate": {"backend": "100% (39/39)", "frontend": "not tested (backend-only request)"},
+  "seed_data_creation": "Temporary employees TEST AUTOSAVEONE/TWO/THREE/FOUR and TEST HISTORYOLD/HISTORYNEW (jmbg 9911223344556) created and deleted in module teardown. EGZON CEKA restored to aktivan=true, datum_prestanka=''.",
+  "should_call_test_agent_after_fix": false,
+  "should_main_agent_self_test": true,
+  "test_credentials": "getuard / Getuard1994. (from /app/memory/test_credentials.md)",
+  "context_for_next_testing_agent": "New tests live in /app/backend/tests/test_employment_history_and_autosave.py (classes TestAutoSaveDatumPrestanka, TestHistoryByJmbg). Frontend HistoryModal (data-testid=history-modal, history-person-<id>) in Persons.jsx and the Documents.jsx toast were NOT UI-tested — request was backend-only. Use JMBG 2301996220017 for a real 2-company history when testing the modal. Beware: generating the prestanak template with an override for a real employee now archives them.",
+  "rca_of_the_issue": "No functional defects found. The only observed data mutation of seeded employee EGZON CEKA was caused by the pre-existing regression test now triggering the new auto-save path; restored post-run."
+}

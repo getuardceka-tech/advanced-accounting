@@ -200,6 +200,18 @@ export default function Documents() {
           custom_fields: customFields,
         });
         setGenResult(resp.data);
+        // Ako je rješenje o prestanku sa datumom → prikaži poruku da je radnik odjavljen
+        const fn = (selectedTemplate.filename || "").toLowerCase();
+        const dp = (customFields?.datum_prestanka_override || "").trim();
+        if (dp && fn.includes("prestank") && employeeId) {
+          try {
+            const dt = new Date(dp + "T00:00:00");
+            const fmt = `${String(dt.getDate()).padStart(2, "0")}.${String(dt.getMonth() + 1).padStart(2, "0")}.${dt.getFullYear()}`;
+            const emp = employees.find((e) => e.id === employeeId);
+            const empName = emp ? `${emp.ime} ${emp.prezime}` : "Radnik";
+            window.dispatchEvent(new CustomEvent("toast", { detail: { type: "success", msg: `✓ ${empName} odjavljen na dan ${fmt}. Datum je snimljen u kartonu radnika.` } }));
+          } catch { /* ignore */ }
+        }
       }
       // Refresh history u pozadini
       if (tab === "istorija") loadHistory();
@@ -671,8 +683,9 @@ function ExtrasOdluka({ template, values, onChange, companyId, objekatId }) {
   const isIzjavaOdgovornost = fn.includes("izjava") && (fn.includes("odgovornost") || fn.includes("pravim"));
   const isPozajmica = fn.includes("pozajm");
   const isRjesenjeGO = fn.includes("rjesenje") && (fn.includes("godisnj") || fn.includes("godišnj"));
+  const isRjesenjePrestanak = fn.includes("rjesenje") && fn.includes("prestank");
   
-  const showAny = isPopust || isObavjestenjeRadno || isKomunalna || isPraznici || isTableTpl || isMobing || isIzjavaOdgovornost || isPozajmica || isRjesenjeGO;
+  const showAny = isPopust || isObavjestenjeRadno || isKomunalna || isPraznici || isTableTpl || isMobing || isIzjavaOdgovornost || isPozajmica || isRjesenjeGO || isRjesenjePrestanak;
   if (!showAny) return null;
   
   const u = (k, v) => onChange({ ...values, [k]: v });
@@ -687,6 +700,45 @@ function ExtrasOdluka({ template, values, onChange, companyId, objekatId }) {
       {isTableTpl && <EmployeesTablePreview companyId={companyId} objekatId={objekatId} values={values} u={u} fn={fn} />}
       {(isMobing || isIzjavaOdgovornost) && <BulkEmployeesPicker companyId={companyId} objekatId={objekatId} values={values} onChange={onChange} />}
       {isRjesenjeGO && <RjesenjeGodisnjiInput values={values} u={u} />}
+      {isRjesenjePrestanak && <RjesenjePrestanakInput values={values} u={u} />}
+    </div>
+  );
+}
+
+function RjesenjePrestanakInput({ values, u }) {
+  const dateVal = values.datum_prestanka_override || "";
+  const formatted = dateVal ? (() => {
+    const d = new Date(dateVal + "T00:00:00");
+    if (isNaN(d.getTime())) return "";
+    return `${String(d.getDate()).padStart(2,"0")}.${String(d.getMonth()+1).padStart(2,"0")}.${d.getFullYear()}`;
+  })() : "";
+  
+  return (
+    <div style={{ marginBottom: 12 }}>
+      <div style={{ display: "flex", alignItems: "center", gap: 8, margin: "8px 0 10px 0", paddingBottom: 6, borderBottom: "1px solid var(--border)" }}>
+        <div style={{ width: 22, height: 22, borderRadius: 6, background: "#ef4444", color: "white", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 11, fontWeight: 700 }}>×</div>
+        <div style={{ fontSize: 13.5, fontWeight: 700, color: "var(--text-primary)", textTransform: "uppercase", letterSpacing: "0.04em" }}>Datum prestanka radnog odnosa</div>
+      </div>
+      <div className="field-group" style={{ maxWidth: 260 }}>
+        <label className="field-label">Datum prestanka (upiši ovdje)</label>
+        <input
+          type="date"
+          className="input"
+          value={dateVal}
+          onChange={(e) => u("datum_prestanka_override", e.target.value)}
+          data-testid="prestanak-datum-override"
+        />
+      </div>
+      {formatted && (
+        <div style={{ marginTop: 10, padding: "10px 12px", background: "#fef2f2", border: "1px solid #fca5a5", borderRadius: 8, fontSize: 13, color: "#991b1b" }}>
+          ✓ U rješenju će stajati datum prestanka: <b>{formatted}</b>
+        </div>
+      )}
+      {!formatted && (
+        <div style={{ marginTop: 10, fontSize: 11.5, color: "var(--text-tertiary)" }}>
+          💡 Ako ne unesete datum ovdje, koristiće se datum iz kartona zaposlenog (datum_prestanka ili datum_kraja).
+        </div>
+      )}
     </div>
   );
 }
